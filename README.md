@@ -1,44 +1,51 @@
-# Grok Desktop · v0.4
+# Grok Desktop（Linux）
 
-可发布向的 Grok Build 独立桌面端（Linux）。  
-**不用手动开 CLI 界面**——启动窗口即可对话；底层自动调用本机 `grok` agent。
+Grok Build 的 Linux 桌面壳：用 Electron 接官方 `grok` CLI（ACP），提供中文界面、会话列表、多会话并行与更顺手的日常操作。
 
-与终端共用：`~/.grok/sessions` · `~/.grok/memory` · skills · plugins · `config.toml`。
+## 功能概览
 
-## 第一次用
+- 会话列表 / 恢复 / 重命名 / 导出
+- 多会话并行（后台 agent 池，左侧切换即可）
+- 插话排队（任务进行中可排队补充指示）
+- 工具与文件 diff 预览
+- 全文搜索、计划面板
+- Skills / 插件 / MCP / 记忆入口
 
-1. 安装并登录 CLI：`grok login`（只需一次）
-2. 启动桌面：
+## 环境要求
+
+- Linux（推荐 Ubuntu 22.04+）
+- Node.js 18+
+- 已安装 [Grok CLI](https://x.ai/cli) 并完成登录
+
+## 运行
 
 ```bash
-cd ~/linux-grok-desktop && npm start
-# 或安装菜单项后
-./scripts/install-desktop.sh && grok-desktop
+cd linux-grok-desktop
+npm install
+npm start
+# 或
+./scripts/run.sh
 ```
 
-3. 点 **新对话** 选项目目录，或点左侧历史会话继续
+安装桌面快捷方式（可选）：
 
-## 功能一览
+```bash
+./scripts/install-desktop.sh
+```
 
-| 模块 | 说明 |
-|------|------|
-| **对话** | 项目分组会话、恢复、流式回复、重命名/删除 |
-| **图片** | 粘贴 / 拖入 / 附件；展示生成图 |
-| **记忆** | 启用开关、浏览/编辑 MEMORY.md、清空 |
-| **Skills** | 浏览、预览、新建、打开目录 |
-| **插件** | 已安装 / 市场、安装启用禁用卸载 |
-| **设置** | 模型、权限、密度、记忆、路径信息 |
-
-## 验证
+## 冒烟测试
 
 ```bash
 npm run smoke
+# 或
+node scripts/smoke-test.js
 ```
 
-## 架构
+## 说明
 
-```
-Electron
- ├─ main + src/{sessions,acp,memory,skills,plugins,settings}
- └─ renderer 多视图：对话 | 记忆 | Skills | 插件 | 设置
-```
+- 本仓库为独立桌面壳，**不替代**官方 CLI；鉴权与模型能力仍由本机 `grok` 提供。
+- 私有数据（会话、配置）默认在 `~/.grok/`。
+
+## 许可
+
+按仓库内声明使用；与 xAI / Grok 官方产品条款独立。

@@ -882,61 +882,14 @@ function sessionTabTitle(id) {
   return s?.title || id.slice(0, 8);
 }
 
+/**
+ * 顶栏会话标签已隐藏（与左侧「最近会话」重复，用户反馈多余）。
+ * openTabs 仍在后台维护，用于并行 agent / 软切换 / Ctrl+Tab。
+ */
 function renderTabs() {
   if (!ui.sessionTabs) return;
-  if (!openTabs.length) {
-    ui.sessionTabs.classList.add("hidden");
-    ui.sessionTabs.replaceChildren();
-    return;
-  }
-  ui.sessionTabs.classList.remove("hidden");
+  ui.sessionTabs.classList.add("hidden");
   ui.sessionTabs.replaceChildren();
-  for (const id of openTabs) {
-    const title = sessionTabTitle(id);
-    const live = liveAgents.has(id);
-    const working = workingSessions.has(id);
-    const tab = document.createElement("div");
-    tab.className =
-      "session-tab" +
-      (id === activeId ? " active" : "") +
-      (working ? " working" : "") +
-      (live && !working ? " live" : "");
-    tab.setAttribute("role", "tab");
-    tab.dataset.sessionId = id;
-    tab.title = working
-      ? `${title} · 运行中`
-      : live
-        ? `${title} · 已连接（可秒切）`
-        : `${title}`;
-    tab.innerHTML = `
-      <span class="tab-dot" title="${working ? "运行中" : live ? "已连接" : ""}"></span>
-      <span class="tab-title"></span>
-      <button type="button" class="tab-close" title="关闭此会话的助手">×</button>`;
-    tab.querySelector(".tab-title").textContent = title;
-    tab.onclick = (e) => {
-      if (e.target.closest(".tab-close")) return;
-      if (view !== "chat") switchView("chat");
-      void selectSession(id);
-    };
-    tab.querySelector(".tab-close").onclick = async (e) => {
-      e.stopPropagation();
-      try {
-        await grokDesktop.closeAgent?.(id);
-      } catch {
-        /* ignore */
-      }
-      if (activeId === id) stashComposer(id);
-      removeOpenTab(id);
-      if (activeId === id) {
-        const next = openTabs[0];
-        if (next) void selectSession(next);
-        else showWelcome();
-      } else {
-        renderTabs();
-      }
-    };
-    ui.sessionTabs.appendChild(tab);
-  }
 }
 
 /** Ctrl/Cmd+Tab cycle open session tabs */

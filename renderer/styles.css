@@ -839,7 +839,11 @@ body.compact { font-size: 12.5px; }
 .diff-line.same .ln::before { content: " "; }
 
 /* Session tabs (parallel agents) */
+/* 顶栏并行标签默认不展示（左侧列表即可切换会话） */
 .session-tabs {
+  display: none !important;
+}
+.session-tabs-legacy {
   display: flex;
   gap: 4px;
   padding: 6px 12px 0;
