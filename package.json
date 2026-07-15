@@ -1,18 +1,101 @@
 {
   "name": "linux-grok-desktop",
   "version": "0.6.0",
-  "description": "Standalone desktop window for Grok Build CLI — session list, resume, and chat over ACP",
+  "description": "Grok Build 独立桌面端 — 会话列表、多会话并行、中文界面",
   "main": "main.js",
+  "author": {
+    "name": "xiaokaige1130-maker",
+    "email": "xiaokaige1130@gmail.com"
+  },
+  "homepage": "https://github.com/xiaokaige1130-maker/linux-grok-desktop",
+  "desktopName": "grok-desktop.desktop",
   "private": true,
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "smoke": "node scripts/smoke-test.js"
+    "smoke": "node scripts/smoke-test.js",
+    "dist": "electron-builder --linux",
+    "dist:appimage": "electron-builder --linux AppImage",
+    "dist:deb": "electron-builder --linux deb"
   },
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
-    "electron": "^35.0.0"
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.xiaokaige.grok-desktop",
+    "productName": "Grok Desktop",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "renderer/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "scripts/run.sh",
+      "scripts/install-desktop.sh",
+      "scripts/smoke-test.js",
+      "README.md"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "icon": "assets/icon.png",
+      "executableName": "grok-desktop",
+      "syncDesktopName": true,
+      "synopsis": "Grok Build 独立桌面端",
+      "description": "Linux 上的 Grok Build 桌面壳：多会话并行、中文界面、对接官方 grok CLI（ACP）。",
+      "desktop": {
+        "entry": {
+          "Name": "Grok Desktop",
+          "Name[zh_CN]": "Grok 桌面版",
+          "Comment": "Grok Build standalone desktop",
+          "Comment[zh_CN]": "Grok Build 独立桌面端",
+          "Categories": "Development;Utility;",
+          "StartupWMClass": "grok-desktop"
+        }
+      }
+    },
+    "deb": {
+      "packageCategory": "devel",
+      "priority": "optional",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1"
+      ]
+    },
+    "appImage": {
+      "artifactName": "Grok-Desktop-${version}-x86_64.AppImage"
+    }
   }
 }

@@ -41,6 +41,25 @@ npm run smoke
 node scripts/smoke-test.js
 ```
 
+## 打包安装包
+
+需本机 Node.js 18+，会生成 `release/` 下的 AppImage 与 deb（该目录已 gitignore，不入库）。
+
+```bash
+npm install
+npm run dist          # AppImage + deb
+# 或
+npm run dist:appimage
+npm run dist:deb
+```
+
+产物示例：
+
+- `release/Grok-Desktop-0.6.0-x86_64.AppImage` — 免安装，`chmod +x` 后运行  
+- `release/linux-grok-desktop_0.6.0_amd64.deb` — `sudo dpkg -i …` 安装  
+
+安装包**不包含** Grok CLI，使用前请先安装并登录官方 `grok`。
+
 ## 说明
 
 - 本仓库为独立桌面壳，**不替代**官方 CLI；鉴权与模型能力仍由本机 `grok` 提供。
