@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grok Desktop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ===== LEFT: brand + nav + session rail ===== -->
+      <aside id="sidebar">
+        <div class="brand">
+          <img class="brand-mark" src="icon.png" alt="Grok" width="36" height="36" />
+          <div class="brand-text">
+            <div class="brand-name">Grok Desktop</div>
+          </div>
+        </div>
+
+        <button type="button" class="btn-new" id="btn-new">
+          <span class="plus">＋</span>
+          <span>新对话</span>
+          <kbd>N</kbd>
+        </button>
+
+        <nav class="rail-nav" aria-label="主导航">
+          <button type="button" class="rail-item active" data-view="chat">
+            <span class="rail-ico">💬</span><span>对话</span>
+          </button>
+          <button type="button" class="rail-item" data-view="memory">
+            <span class="rail-ico">🧠</span><span>记忆</span>
+          </button>
+          <button type="button" class="rail-item" data-view="skills">
+            <span class="rail-ico">⚡</span><span>Skills</span>
+          </button>
+          <button type="button" class="rail-item" data-view="plugins">
+            <span class="rail-ico">🧩</span><span>插件</span>
+          </button>
+        </nav>
+
+        <div class="session-panel" id="session-section">
+          <div class="panel-head">
+            <span>最近会话</span>
+            <button type="button" id="btn-refresh" class="icon-btn" title="刷新列表">↻</button>
+          </div>
+          <label class="search-box" for="search">
+            <span>⌕</span>
+            <input id="search" type="search" placeholder="搜索标题 / 全文…" autocomplete="off" />
+          </label>
+          <div id="search-hits" class="search-hits hidden" role="list"></div>
+          <div id="session-list" class="session-list" role="list"></div>
+        </div>
+
+        <div class="side-bottom-nav">
+          <button type="button" class="rail-item settings-item" id="nav-settings" data-view="settings">
+            <span class="rail-ico">⚙</span><span>设置</span>
+          </button>
+        </div>
+
+        <footer class="side-foot">
+          <div id="cli-info" class="cli-info" title="">检测 CLI…</div>
+        </footer>
+      </aside>
+
+      <!-- ===== MAIN ===== -->
+      <main id="workspace">
+        <!-- CHAT -->
+        <div id="view-chat" class="view active">
+          <header class="topbar" id="topbar">
+            <div class="topbar-left">
+              <h1 id="chat-title">欢迎使用 Grok Desktop</h1>
+              <p id="chat-sub" class="sub">选择左侧会话继续，或开始新对话</p>
+            </div>
+            <div class="topbar-right">
+              <div class="session-actions hidden" id="session-actions">
+                <button type="button" class="btn ghost" id="btn-act-export" title="导出 Markdown">导出</button>
+                <button type="button" class="btn ghost" id="btn-smart-title" title="用首条消息生成标题">起名</button>
+                <button type="button" class="btn ghost" id="btn-rename" title="重命名">重命名</button>
+                <button type="button" class="btn ghost danger" id="btn-delete" title="删除会话">删除</button>
+              </div>
+              <div id="status-pill" class="status" data-state="idle">就绪</div>
+            </div>
+          </header>
+
+          <div id="session-tabs" class="session-tabs hidden" role="tablist" aria-label="打开的会话"></div>
+
+          <div id="live-strip" class="live-strip hidden">
+            <span id="strip-model">—</span>
+            <span class="dot">·</span>
+            <span id="strip-effort">—</span>
+            <span class="dot">·</span>
+            <span id="strip-cwd">—</span>
+            <span class="dot">·</span>
+            <span id="strip-queue" class="hidden">队列 0</span>
+            <span class="dot plan-dot hidden" id="plan-dot">·</span>
+            <button type="button" id="btn-plan-toggle" class="strip-link hidden" title="查看计划">计划</button>
+          </div>
+
+          <div class="chat-body">
+            <div id="thread" class="thread">
+              <div id="thread-inner" class="thread-inner">
+                <!-- welcome injected by JS -->
+              </div>
+            </div>
+
+            <aside id="plan-panel" class="plan-panel hidden" aria-label="执行计划">
+              <div class="plan-panel-head">
+                <strong>计划</strong>
+                <button type="button" class="icon-btn" id="btn-plan-close" title="关闭">✕</button>
+              </div>
+              <div id="plan-list" class="plan-list">
+                <div class="plan-empty">尚无计划条目。助手进入计划模式后会出现在这里。</div>
+              </div>
+            </aside>
+          </div>
+
+          <div id="composer-dock">
+            <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="斜杠命令"></div>
+            <div id="context-chips" class="context-chips hidden"></div>
+            <div id="attach-preview" class="attach-preview hidden"></div>
+            <!-- Follow-up queue while agent is working -->
+            <div id="queue-panel" class="queue-panel hidden" aria-live="polite">
+              <div class="queue-panel-head">
+                <span class="queue-panel-title">补充指示已排队</span>
+                <span class="queue-panel-hint">当前任务不停 · 结束后按顺序发送</span>
+                <button type="button" class="queue-clear" id="btn-queue-clear" title="清空队列">清空</button>
+              </div>
+              <div id="queue-list" class="queue-list"></div>
+            </div>
+            <div id="composer" class="composer">
+              <textarea
+                id="input"
+                rows="1"
+                placeholder="消息 · 拖入图片 · / 命令 · @ 文件… Enter 发送"
+                disabled
+              ></textarea>
+              <div class="composer-bar">
+                <div class="composer-left">
+                  <button type="button" id="btn-file" class="icon-btn" title="附加文件 @" disabled>@</button>
+                  <span id="cwd-chip" class="chip">未选择工作目录</span>
+                </div>
+                <div class="composer-right">
+                  <div class="model-wrap">
+                    <div id="effort-popover" class="model-popover hidden" role="listbox"></div>
+                    <button type="button" id="btn-effort" class="btn-model" disabled title="推理强度">
+                      <span id="effort-label">强度</span>
+                      <span class="caret">▴</span>
+                    </button>
+                  </div>
+                  <div class="model-wrap">
+                    <div id="model-popover" class="model-popover hidden" role="listbox"></div>
+                    <button type="button" id="btn-model" class="btn-model" disabled title="选择模型">
+                      <span id="model-label">模型</span>
+                      <span class="caret">▴</span>
+                    </button>
+                  </div>
+                  <button type="button" id="btn-cancel" class="btn ghost" disabled>停止</button>
+                  <button type="button" id="btn-send" class="btn send" disabled title="发送">发送 ↑</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MEMORY -->
+        <div id="view-memory" class="view">
+          <header class="page-header">
+            <div>
+              <h1>跨会话记忆</h1>
+              <p class="page-desc">让 Grok 在新对话里仍记得你的约定（写在 ~/.grok/memory）</p>
+            </div>
+            <div class="page-actions">
+              <label class="switch">
+                <input type="checkbox" id="memory-enabled" />
+                <span>启用记忆</span>
+              </label>
+              <button type="button" id="btn-memory-add" class="btn primary">＋ 记一条</button>
+              <button type="button" id="btn-memory-refresh" class="btn">刷新</button>
+              <button type="button" id="btn-memory-clear" class="btn danger">清空</button>
+            </div>
+          </header>
+          <div class="memory-howto">
+            <strong>有什么用？</strong>
+            例如「这个项目用 pnpm」「永远用中文回复」。开启后，之后新开的对话会自动检索这些内容，不用反复说明。
+            也可在聊天里让 Grok「记住 xxx」；这里适合手动整理、编辑、备份。
+          </div>
+          <div class="page-split">
+            <div id="memory-list" class="card-list"></div>
+            <div id="memory-detail" class="detail-panel">
+              <div class="welcome-mini">
+                <h2>还没有记忆文件</h2>
+                <p>先打开右上角「启用记忆」，再点「记一条」，或在对话中说「请记住：……」。</p>
+                <ul>
+                  <li><strong>全局</strong>：所有项目共用的偏好</li>
+                  <li><strong>项目</strong>：某个目录/仓库专属约定</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SKILLS -->
+        <div id="view-skills" class="view">
+          <header class="page-header">
+            <div>
+              <h1>Skills</h1>
+              <p class="page-desc">可复用任务说明 · 放在 ~/.grok/skills 下自动发现</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" id="btn-skill-refresh" class="btn">刷新</button>
+              <button type="button" id="btn-skill-create" class="btn primary">新建</button>
+            </div>
+          </header>
+          <div class="page-split">
+            <div id="skills-list" class="card-list"></div>
+            <div id="skill-detail" class="detail-panel">
+              <div class="welcome-mini">
+                <h2>Skill 怎么用？</h2>
+                <p>每个 Skill 是一份 SKILL.md。对话里相关任务会自动加载；也可在此浏览与编辑。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PLUGINS -->
+        <div id="view-plugins" class="view">
+          <header class="page-header">
+            <div>
+              <h1>插件</h1>
+              <p class="page-desc">扩展技能、MCP、Hooks · 通过官方 marketplace 或 git 安装</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" id="btn-plugin-refresh" class="btn">刷新</button>
+            </div>
+          </header>
+          <div class="install-bar">
+            <input id="plugin-install-spec" type="text" placeholder="插件名、owner/repo、git URL 或本地路径" />
+            <button type="button" id="btn-plugin-install" class="btn primary">安装</button>
+          </div>
+          <div class="tabs">
+            <button type="button" class="tab active" data-ptab="installed">已安装</button>
+            <button type="button" class="tab" data-ptab="market">市场</button>
+          </div>
+          <div class="page-body-scroll">
+            <div id="plugins-installed" class="card-list flat"></div>
+            <div id="plugins-market" class="card-list flat hidden"></div>
+          </div>
+        </div>
+
+        <!-- SETTINGS: Codex-style left categories + right content -->
+        <div id="view-settings" class="view settings-shell">
+          <aside class="settings-rail">
+            <button type="button" class="settings-back" id="settings-back">← 返回应用</button>
+            <div class="settings-search">
+              <input type="search" id="settings-search" placeholder="搜索设置…" autocomplete="off" />
+            </div>
+            <div class="settings-nav-scroll">
+              <div class="sn-group">个人</div>
+              <button type="button" class="sn-item active" data-panel="general">⚙ 常规</button>
+              <button type="button" class="sn-item" data-panel="appearance">◐ 外观</button>
+              <button type="button" class="sn-item" data-panel="model">✦ 模型</button>
+              <button type="button" class="sn-item" data-panel="memory">🧠 记忆</button>
+              <div class="sn-group">权限与安全</div>
+              <button type="button" class="sn-item" data-panel="permissions">🛡 权限</button>
+              <div class="sn-group">集成</div>
+              <button type="button" class="sn-item" data-panel="skills">⚡ Skills</button>
+              <button type="button" class="sn-item" data-panel="plugins">🧩 插件</button>
+              <button type="button" class="sn-item" data-panel="mcp">🔌 MCP</button>
+              <div class="sn-group">关于</div>
+              <button type="button" class="sn-item" data-panel="about">ℹ 环境</button>
+            </div>
+          </aside>
+          <section class="settings-main">
+            <div class="settings-panel active" id="panel-general" data-panel="general">
+              <h1>常规</h1>
+              <p class="settings-lead">输入与显示的基本行为</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">Enter 发送消息</div>
+                    <div class="scard-desc">关闭后需点「发送」按钮；Shift+Enter 始终换行</div>
+                  </div>
+                  <input type="checkbox" id="set-enter-send" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">显示思考过程</div>
+                    <div class="scard-desc">在对话中展示模型的思考片段</div>
+                  </div>
+                  <input type="checkbox" id="set-show-thinking" class="toggle" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel" id="panel-appearance" data-panel="appearance">
+              <h1>外观</h1>
+              <p class="settings-lead">界面密度与布局</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">界面密度</div>
+                    <div class="scard-desc">紧凑模式减少间距，一屏显示更多内容</div>
+                  </div>
+                  <select id="set-density">
+                    <option value="comfortable">舒适</option>
+                    <option value="compact">紧凑</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel" id="panel-model" data-panel="model">
+              <h1>模型</h1>
+              <p class="settings-lead">默认模型（也可在对话输入框旁随时切换）</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">默认模型</div>
+                    <div class="scard-desc">新会话默认使用的模型</div>
+                  </div>
+                  <select id="set-model"></select>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel" id="panel-memory" data-panel="memory">
+              <h1>记忆</h1>
+              <p class="settings-lead">跨会话记住项目约定与偏好</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">启用跨会话记忆</div>
+                    <div class="scard-desc">开启后新连接的 agent 会读取 ~/.grok/memory</div>
+                  </div>
+                  <input type="checkbox" id="set-memory" class="toggle" />
+                </div>
+              </div>
+              <button type="button" class="btn" id="settings-goto-memory">打开记忆管理 →</button>
+            </div>
+
+            <div class="settings-panel" id="panel-permissions" data-panel="permissions">
+              <h1>权限</h1>
+              <p class="settings-lead">工具执行时如何请求确认</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">权限模式</div>
+                    <div class="scard-desc">始终批准适合本机桌面自用</div>
+                  </div>
+                  <select id="set-permission">
+                    <option value="always-approve">始终批准</option>
+                    <option value="default">默认</option>
+                    <option value="ask">每次询问</option>
+                  </select>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">YOLO 全自动</div>
+                    <div class="scard-desc">更激进的自动执行（有风险）</div>
+                  </div>
+                  <input type="checkbox" id="set-yolo" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">自动批准工具</div>
+                    <div class="scard-desc">关闭后，写文件/跑命令会弹出权限卡片（更像 Codex）</div>
+                  </div>
+                  <input type="checkbox" id="set-auto-approve" class="toggle" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel" id="panel-skills" data-panel="skills">
+              <h1>Skills</h1>
+              <p class="settings-lead">本机已发现的 Skills（对话中键入 / 可调用）</p>
+              <div id="settings-skills-list" class="embed-list"></div>
+            </div>
+
+            <div class="settings-panel" id="panel-plugins" data-panel="plugins">
+              <h1>插件</h1>
+              <p class="settings-lead">已安装插件（真实 grok plugin list）</p>
+              <div id="settings-plugins-list" class="embed-list"></div>
+              <div class="install-bar" style="padding:12px 0 0">
+                <input id="settings-plugin-spec" type="text" placeholder="owner/repo 或 git URL" />
+                <button type="button" id="settings-plugin-install" class="btn primary">安装</button>
+              </div>
+            </div>
+
+            <div class="settings-panel" id="panel-mcp" data-panel="mcp">
+              <h1>MCP 服务器</h1>
+              <p class="settings-lead">真实 `grok mcp list` 结果</p>
+              <div id="settings-mcp-list" class="embed-list"></div>
+              <div class="install-bar" style="padding:12px 0 0;display:flex;gap:8px;flex-wrap:wrap">
+                <input id="mcp-name" type="text" placeholder="名称" style="width:100px" />
+                <input id="mcp-cmd" type="text" placeholder="命令，如 npx -y @modelcontextprotocol/server-filesystem" style="flex:1" />
+                <button type="button" id="mcp-add" class="btn primary">添加</button>
+                <button type="button" id="mcp-doctor" class="btn">诊断</button>
+              </div>
+              <pre id="mcp-doctor-out" class="embed-pre hidden"></pre>
+            </div>
+
+            <div class="settings-panel" id="panel-about" data-panel="about">
+              <h1>环境</h1>
+              <p class="settings-lead">本机路径与 CLI 信息</p>
+              <div class="scard about-card">
+                <div class="path-row"><span>GROK_HOME</span><code id="set-grok-home">—</code></div>
+                <div class="path-row"><span>CLI</span><code id="set-cli">—</code></div>
+                <div class="path-row"><span>config.toml</span><code id="set-config-path">—</code></div>
+              </div>
+              <div class="scard" style="margin-top:12px">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">额度 / 账单</div>
+                    <div class="scard-desc">执行真实 /usage，查看额度与用量</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-run-usage">查看额度</button>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">上下文用量</div>
+                    <div class="scard-desc">执行 /context，查看窗口占用与统计</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-run-context">查看上下文</button>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">压缩上下文</div>
+                    <div class="scard-desc">执行 /compact，压缩历史以节省上下文</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-run-compact">立即压缩</button>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">会话信息</div>
+                    <div class="scard-desc">执行 /session-info（模型、轮次等）</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-run-session-info">查看</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-footer">
+              <p class="hint" id="settings-msg"></p>
+              <button type="button" id="btn-settings-save" class="btn primary">保存更改</button>
+            </div>
+          </section>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- App modal (Electron has no window.prompt) -->
+    <div id="app-modal" class="app-modal hidden" role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
+      <div class="app-modal-backdrop" data-modal-cancel></div>
+      <div class="app-modal-card">
+        <h2 id="app-modal-title" class="app-modal-title">提示</h2>
+        <p id="app-modal-msg" class="app-modal-msg"></p>
+        <input id="app-modal-input" class="app-modal-input" type="text" autocomplete="off" />
+        <div class="app-modal-actions">
+          <button type="button" class="btn ghost" id="app-modal-cancel" data-modal-cancel>取消</button>
+          <button type="button" class="btn primary" id="app-modal-ok">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session list context menu -->
+    <div id="session-ctx" class="session-ctx hidden" role="menu" aria-label="会话菜单">
+      <button type="button" class="ctx-item" data-act="open" role="menuitem">打开</button>
+      <button type="button" class="ctx-item" data-act="rename" role="menuitem">重命名</button>
+      <button type="button" class="ctx-item" data-act="smart-title" role="menuitem">智能起名</button>
+      <div class="ctx-sep"></div>
+      <button type="button" class="ctx-item danger" data-act="delete" role="menuitem">删除</button>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
