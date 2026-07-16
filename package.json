@@ -1,6 +1,6 @@
 {
   "name": "linux-grok-desktop",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Grok Build 独立桌面端 — 会话列表、多会话并行、中文界面",
   "main": "main.js",
   "author": {

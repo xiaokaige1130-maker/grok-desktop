@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/xiaokaige1130-maker/linux-grok-desktop"><img src="https://img.shields.io/badge/GitHub-linux--grok--desktop-8b5cf6?style=flat-square" alt="repo" /></a>
   <img src="https://img.shields.io/badge/platform-Linux-0a0a0c?style=flat-square" alt="platform" />
-  <img src="https://img.shields.io/badge/version-0.6.0-22c55e?style=flat-square" alt="version" />
+  <img src="https://img.shields.io/badge/version-0.7.0-22c55e?style=flat-square" alt="version" />
   <img src="https://img.shields.io/badge/license-see%20repo-64748b?style=flat-square" alt="license" />
 </p>
 
@@ -68,6 +68,9 @@
 | **计划面板** | Plan 模式条目展示（状态中文） |
 | **Skills / 插件 / MCP / 记忆** | 设置与侧栏入口 |
 | **外观** | 密度、聊天壁纸、压暗 |
+| **首次引导** | 检测 CLI / 登录状态，缺项给出安装与 `grok login` 提示 |
+| **完成后通知** | 后台会话跑完系统通知（可关；当前会话不打扰） |
+| **检查更新** | 启动时查 GitHub Release（仅提示，不自动安装） |
 | **中文 UI** | 菜单、状态、计划/工具状态文案中文化 |
 
 ---

@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   openSkill: (p) => ipcRenderer.invoke("skills:open", p),
 
   appInfo: () => ipcRenderer.invoke("app:info"),
+  diagnose: () => ipcRenderer.invoke("app:diagnose"),
+  checkUpdate: () => ipcRenderer.invoke("app:checkUpdate"),
+  notify: (payload) => ipcRenderer.invoke("app:notify", payload || {}),
+  openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   listCommands: (sessionId) => ipcRenderer.invoke("commands:list", { sessionId }),
   listModels: (sessionId) => ipcRenderer.invoke("models:list", { sessionId }),
   setModel: (modelId, sessionId) => ipcRenderer.invoke("models:set", modelId, sessionId),

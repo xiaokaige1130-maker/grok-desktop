@@ -27,6 +27,12 @@ const DEFAULT_DESKTOP = {
   wallpaperPath: null,
   /** 背景压暗 0–80 */
   wallpaperDim: 45,
+  /** 后台会话完成时系统通知 */
+  notifyOnDone: true,
+  /** 启动时检查 GitHub 更新 */
+  checkUpdates: true,
+  /** 是否已完成首次环境引导 */
+  setupDismissed: false,
 };
 
 function configPath() {

@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
+const os = require("os");
 const {
   listSessions,
   loadHistoryPreview,
@@ -1089,11 +1091,173 @@ ipcMain.handle("models:set", async (_e, modelId, sessionId) => {
   return { ok: true, modelId: mid, result: res };
 });
 
+const DESKTOP_VERSION = "0.7.0";
+
 ipcMain.handle("app:info", async () => ({
   grokHome: grokHome(),
   grokCli: resolveGrokCli(),
   version: app.getVersion(),
-  desktopVersion: "0.6.0",
+  desktopVersion: DESKTOP_VERSION,
   memoryEnabled: memory.isEnabledInConfig(),
   openAgents: agents.size,
 }));
+
+/** 环境诊断：CLI 是否存在、是否像已登录 */
+ipcMain.handle("app:diagnose", async () => {
+  const cli = resolveGrokCli();
+  const cliExists = !!(cli && fs.existsSync(cli));
+  const home = grokHome();
+  const authPath = path.join(home, "auth.json");
+  let loggedIn = false;
+  let authHint = "未找到登录凭据";
+  try {
+    if (fs.existsSync(authPath)) {
+      const st = fs.statSync(authPath);
+      if (st.size > 20) {
+        loggedIn = true;
+        authHint = "已检测到登录凭据";
+      }
+    }
+  } catch {
+    authHint = "无法读取登录状态";
+  }
+  let cliVersion = null;
+  if (cliExists) {
+    try {
+      cliVersion = await new Promise((resolve) => {
+        const child = spawn(cli, ["--version"], {
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let out = "";
+        child.stdout?.on("data", (d) => {
+          out += d.toString();
+        });
+        child.stderr?.on("data", (d) => {
+          out += d.toString();
+        });
+        const t = setTimeout(() => {
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            /* ignore */
+          }
+          resolve(out.trim() || null);
+        }, 4000);
+        child.on("close", () => {
+          clearTimeout(t);
+          resolve((out || "").trim().split("\n")[0] || null);
+        });
+      });
+    } catch {
+      cliVersion = null;
+    }
+  }
+  return {
+    ok: cliExists && loggedIn,
+    cli,
+    cliExists,
+    cliVersion,
+    grokHome: home,
+    authPath,
+    loggedIn,
+    authHint,
+    desktopVersion: DESKTOP_VERSION,
+    installHint: cliExists
+      ? null
+      : "请先安装官方 Grok CLI：curl -fsSL https://x.ai/cli/install.sh | bash",
+    loginHint: loggedIn ? null : "在终端执行：grok login  （或 grok login --oauth）",
+  };
+});
+
+/** 打开外部链接 / 路径 */
+ipcMain.handle("shell:openExternal", async (_e, url) => {
+  if (url) await shell.openExternal(String(url));
+  return { ok: true };
+});
+
+/** 系统通知（后台会话完成等） */
+ipcMain.handle("app:notify", async (_e, { title, body } = {}) => {
+  try {
+    if (!Notification.isSupported()) return { ok: false, reason: "unsupported" };
+    const n = new Notification({
+      title: title || "Grok 桌面版",
+      body: body || "",
+      silent: false,
+    });
+    n.on("click", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+    n.show();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+});
+
+/**
+ * 检查 GitHub 是否有更新（对比 tag / name 中的版本号）
+ */
+ipcMain.handle("app:checkUpdate", async () => {
+  const current = DESKTOP_VERSION;
+  const api =
+    "https://api.github.com/repos/xiaokaige1130-maker/linux-grok-desktop/releases/latest";
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const req = net.request({ url: api, method: "GET" });
+      req.setHeader("User-Agent", "linux-grok-desktop");
+      req.setHeader("Accept", "application/vnd.github+json");
+      let body = "";
+      req.on("response", (res) => {
+        res.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(body));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const tag = String(data.tag_name || data.name || "").replace(/^v/i, "");
+    const newer = tag && compareSemver(tag, current) > 0;
+    return {
+      ok: true,
+      current,
+      latest: tag || null,
+      hasUpdate: !!newer,
+      url: data.html_url || "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases",
+      name: data.name || tag,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      current,
+      latest: null,
+      hasUpdate: false,
+      error: err.message || String(err),
+      url: "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases",
+    };
+  }
+});
+
+function compareSemver(a, b) {
+  const pa = String(a).split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = String(b).split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}

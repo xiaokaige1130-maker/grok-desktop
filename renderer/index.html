@@ -271,12 +271,12 @@
           <section class="settings-main">
             <div class="settings-panel active" id="panel-general" data-panel="general">
               <h1>常规</h1>
-              <p class="settings-lead">输入与显示的基本行为</p>
+              <p class="settings-lead">输入、通知与更新</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
                     <div class="scard-title">Enter 发送消息</div>
-                    <div class="scard-desc">关闭后需点「发送」按钮；Shift+Enter 始终换行</div>
+                    <div class="scard-desc">空闲时发送；任务进行中为排队。Shift+Enter 始终换行</div>
                   </div>
                   <input type="checkbox" id="set-enter-send" class="toggle" />
                 </div>
@@ -286,6 +286,31 @@
                     <div class="scard-desc">在对话中展示模型的思考片段</div>
                   </div>
                   <input type="checkbox" id="set-show-thinking" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">完成后通知</div>
+                    <div class="scard-desc">后台会话跑完时弹出系统通知（当前会话不打扰）</div>
+                  </div>
+                  <input type="checkbox" id="set-notify-done" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">启动时检查更新</div>
+                    <div class="scard-desc">向 GitHub 查询是否有新版本（仅提示，不自动安装）</div>
+                  </div>
+                  <input type="checkbox" id="set-check-updates" class="toggle" />
+                </div>
+              </div>
+              <div class="scard" style="margin-top:12px">
+                <div class="scard-title" style="margin-bottom:8px">常用快捷键</div>
+                <div class="shortcut-list">
+                  <div><kbd>Enter</kbd><span>发送 / 任务中排队</span></div>
+                  <div><kbd>Shift</kbd>+<kbd>Enter</kbd><span>换行</span></div>
+                  <div><span class="kbd-txt">排队气泡 · 引导</span><span>打断并立刻发送纠正</span></div>
+                  <div><kbd>N</kbd><span>新对话（焦点不在输入框时）</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>Tab</kbd><span>切换已打开会话</span></div>
+                  <div><kbd>/</kbd><span>斜杠命令</span></div>
                 </div>
               </div>
             </div>
@@ -429,11 +454,28 @@
 
             <div class="settings-panel" id="panel-about" data-panel="about">
               <h1>环境</h1>
-              <p class="settings-lead">本机路径与 CLI 信息</p>
+              <p class="settings-lead">本机路径、CLI 与更新</p>
               <div class="scard about-card">
+                <div class="path-row"><span>桌面版</span><code id="set-desktop-ver">—</code></div>
                 <div class="path-row"><span>GROK_HOME</span><code id="set-grok-home">—</code></div>
                 <div class="path-row"><span>CLI</span><code id="set-cli">—</code></div>
                 <div class="path-row"><span>config.toml</span><code id="set-config-path">—</code></div>
+              </div>
+              <div class="scard" style="margin-top:12px">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">检查更新</div>
+                    <div class="scard-desc" id="update-check-desc">查询 GitHub 最新 Release</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-check-update">检查</button>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">重新检测环境</div>
+                    <div class="scard-desc">CLI 是否安装、是否已登录</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-run-diagnose">检测</button>
+                </div>
               </div>
               <div class="scard" style="margin-top:12px">
                 <div class="scard-row">
@@ -475,6 +517,28 @@
         </div>
 
       </main>
+    </div>
+
+    <!-- 首次启动 / 环境引导 -->
+    <div id="setup-overlay" class="setup-overlay hidden" role="dialog" aria-modal="true" aria-label="环境检测">
+      <div class="setup-card">
+        <h2>欢迎使用 Grok 桌面版</h2>
+        <p class="setup-lead">使用前请确认本机官方 CLI 与登录状态</p>
+        <ul id="setup-checks" class="setup-checks"></ul>
+        <p id="setup-hint" class="setup-hint"></p>
+        <div class="setup-actions">
+          <button type="button" class="btn" id="setup-recheck">重新检测</button>
+          <button type="button" class="btn" id="setup-open-cli-doc">CLI 安装说明</button>
+          <button type="button" class="btn primary" id="setup-continue">进入应用</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 更新提示条 -->
+    <div id="update-banner" class="update-banner hidden" role="status">
+      <span id="update-banner-text">发现新版本</span>
+      <button type="button" class="btn primary" id="update-banner-open">查看</button>
+      <button type="button" class="btn ghost" id="update-banner-dismiss">关闭</button>
     </div>
 
     <!-- App modal (Electron has no window.prompt) -->

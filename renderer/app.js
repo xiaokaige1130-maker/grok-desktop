@@ -202,6 +202,9 @@ let desktopSettings = {
   wallpaper: "none",
   wallpaperPath: null,
   wallpaperDim: 45,
+  notifyOnDone: true,
+  checkUpdates: true,
+  setupDismissed: false,
 };
 /** 刚跑完、尚未点开的会话（左侧绿点） */
 /** @type {Set<string>} */
@@ -3243,6 +3246,15 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
         setBusy(false);
       }
       setStatus("ready", "已完成");
+    } else if (desktopSettings.notifyOnDone !== false) {
+      const title =
+        sessions.find((x) => x.id === sentTo)?.title ||
+        st.meta?.title ||
+        sentTo.slice(0, 8);
+      void grokDesktop.notify?.({
+        title: "会话已完成",
+        body: `「${title}」已结束，可在左侧查看`,
+      });
     }
     st.streamingEl = null;
     refreshSendButtonState();
@@ -3438,6 +3450,21 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
         // 跑完 → 绿点（当前会话也显示，点开/再点一次清）
         if (wasWorking && (state === "ready" || state === "error")) {
           doneSessions.add(sid);
+          // 后台会话完成 → 系统通知
+          if (
+            state === "ready" &&
+            sid !== activeId &&
+            desktopSettings.notifyOnDone !== false
+          ) {
+            const title =
+              sessions.find((x) => x.id === sid)?.title ||
+              sessionUi.get(sid)?.meta?.title ||
+              sid.slice(0, 8);
+            void grokDesktop.notify?.({
+              title: "会话已完成",
+              body: `「${title}」已结束，可在左侧查看`,
+            });
+          }
         }
         if (state === "ready" || state === "error") {
           everWorkedSessions.delete(sid);
@@ -3818,6 +3845,8 @@ async function loadSettings() {
     desktopSettings = s.desktop || desktopSettings;
     if ($("set-show-thinking")) $("set-show-thinking").checked = !!desktopSettings.showThinking;
     if ($("set-enter-send")) $("set-enter-send").checked = desktopSettings.enterToSend !== false;
+    if ($("set-notify-done")) $("set-notify-done").checked = desktopSettings.notifyOnDone !== false;
+    if ($("set-check-updates")) $("set-check-updates").checked = desktopSettings.checkUpdates !== false;
     if ($("set-density")) $("set-density").value = desktopSettings.density || "comfortable";
     applyDensity(desktopSettings.density);
     applyWallpaper();
@@ -3833,6 +3862,7 @@ async function loadSettings() {
     if ($("set-cli")) $("set-cli").textContent = info.grokCli || "—";
     if ($("set-grok-home")) $("set-grok-home").textContent = s.grokHome || info.grokHome || "—";
     if ($("set-config-path")) $("set-config-path").textContent = grok.path || "—";
+    if ($("set-desktop-ver")) $("set-desktop-ver").textContent = info.desktopVersion || "—";
 
     // default model dropdown
     const sel = $("set-model");
@@ -4071,12 +4101,15 @@ $("btn-settings-save")?.addEventListener("click", async () => {
     desktopSettings = await grokDesktop.saveDesktopSettings({
       showThinking: !!$("set-show-thinking")?.checked,
       enterToSend: !!$("set-enter-send")?.checked,
+      notifyOnDone: !!$("set-notify-done")?.checked,
+      checkUpdates: !!$("set-check-updates")?.checked,
       density: $("set-density")?.value || "comfortable",
       autoApprove: !!$("set-auto-approve")?.checked,
       wallpaper: desktopSettings.wallpaper || "none",
       wallpaperPath: desktopSettings.wallpaperPath || null,
       wallpaperDataUrl: desktopSettings.wallpaperDataUrl || null,
       wallpaperDim: Number($("set-wallpaper-dim")?.value) || desktopSettings.wallpaperDim || 45,
+      setupDismissed: desktopSettings.setupDismissed,
     });
     applyDensity(desktopSettings.density);
     applyWallpaper();
@@ -4544,12 +4577,151 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ── 环境诊断 / 首次引导 / 更新 ─────────────────────────
+
+async function runDiagnose() {
+  try {
+    return await grokDesktop.diagnose();
+  } catch (err) {
+    return {
+      ok: false,
+      cliExists: false,
+      loggedIn: false,
+      authHint: err.message || String(err),
+      installHint: "无法完成检测",
+    };
+  }
+}
+
+function renderSetupChecks(diag) {
+  const ul = $("setup-checks");
+  const hint = $("setup-hint");
+  if (!ul) return;
+  ul.replaceChildren();
+  const items = [
+    {
+      ok: !!diag.cliExists,
+      title: "Grok CLI",
+      detail: diag.cliExists
+        ? `${diag.cli || "已找到"}${diag.cliVersion ? " · " + diag.cliVersion : ""}`
+        : "未找到 grok 可执行文件",
+    },
+    {
+      ok: !!diag.loggedIn,
+      title: "登录状态",
+      detail: diag.authHint || (diag.loggedIn ? "已登录" : "未登录"),
+    },
+  ];
+  for (const it of items) {
+    const li = document.createElement("li");
+    li.className = it.ok ? "ok" : "bad";
+    li.innerHTML = `<span class="ck">${it.ok ? "✓" : "!"}</span><div><strong></strong><p></p></div>`;
+    li.querySelector("strong").textContent = it.title;
+    li.querySelector("p").textContent = it.detail;
+    ul.appendChild(li);
+  }
+  if (hint) {
+    const lines = [];
+    if (diag.installHint) lines.push(diag.installHint);
+    if (diag.loginHint) lines.push(diag.loginHint);
+    if (diag.ok) lines.push("环境正常，可以开始使用。");
+    hint.textContent = lines.join("\n");
+  }
+}
+
+async function showSetupIfNeeded(force = false) {
+  const overlay = $("setup-overlay");
+  if (!overlay) return;
+  const diag = await runDiagnose();
+  // 更新侧栏 CLI 信息
+  if (ui.cliInfo) {
+    if (!diag.cliExists) {
+      ui.cliInfo.textContent = "未检测到 grok CLI";
+      ui.cliInfo.title = diag.installHint || "";
+    } else {
+      ui.cliInfo.textContent = `${diag.cli || "grok"} · v${diag.desktopVersion || "0.7"}`;
+      ui.cliInfo.title = `CLI: ${diag.cli}\n${diag.authHint || ""}\nHome: ${diag.grokHome || ""}`;
+    }
+  }
+  // 首次必出；之后仅 CLI 缺失或手动「环境检测」时再弹（登录缺失不反复打断）
+  const need =
+    force || !desktopSettings.setupDismissed || !diag.cliExists;
+  if (!need) {
+    overlay.classList.add("hidden");
+    return diag;
+  }
+  renderSetupChecks(diag);
+  overlay.classList.remove("hidden");
+  return diag;
+}
+
+function hideSetup(permanent) {
+  $("setup-overlay")?.classList.add("hidden");
+  if (permanent) {
+    desktopSettings.setupDismissed = true;
+    void grokDesktop.saveDesktopSettings({ setupDismissed: true }).catch(() => {});
+  }
+}
+
+async function checkForUpdates(manual = false) {
+  const desc = $("update-check-desc");
+  const banner = $("update-banner");
+  const text = $("update-banner-text");
+  if (!manual && desktopSettings.checkUpdates === false) return;
+  try {
+    if (desc && manual) desc.textContent = "检查中…";
+    const r = await grokDesktop.checkUpdate();
+    if (!r?.ok) {
+      if (desc) desc.textContent = manual ? `检查失败：${r?.error || "网络错误"}` : desc.textContent;
+      return;
+    }
+    if (r.hasUpdate) {
+      if (desc) desc.textContent = `有新版本 ${r.latest}（当前 ${r.current}）`;
+      if (banner && text) {
+        text.textContent = `发现新版本 ${r.latest}（当前 ${r.current}）`;
+        banner.dataset.url = r.url || "";
+        banner.classList.remove("hidden");
+      }
+    } else if (manual && desc) {
+      desc.textContent = `已是最新（${r.current}）`;
+    }
+  } catch (err) {
+    if (manual && desc) desc.textContent = err.message || String(err);
+  }
+}
+
+$("setup-recheck")?.addEventListener("click", async () => {
+  const diag = await runDiagnose();
+  renderSetupChecks(diag);
+});
+$("setup-continue")?.addEventListener("click", () => hideSetup(true));
+$("setup-open-cli-doc")?.addEventListener("click", () => {
+  void grokDesktop.openExternal?.("https://x.ai/cli");
+});
+$("btn-check-update")?.addEventListener("click", () => void checkForUpdates(true));
+$("btn-run-diagnose")?.addEventListener("click", async () => {
+  const diag = await showSetupIfNeeded(true);
+  if (diag?.ok) {
+    const desc = $("update-check-desc");
+    if (desc) desc.textContent = "环境正常：CLI 与登录均已就绪";
+  }
+});
+$("update-banner-open")?.addEventListener("click", () => {
+  const url =
+    $("update-banner")?.dataset?.url ||
+    "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases";
+  void grokDesktop.openExternal?.(url);
+});
+$("update-banner-dismiss")?.addEventListener("click", () => {
+  $("update-banner")?.classList.add("hidden");
+});
+
 // ── Boot ───────────────────────────────────────────────
 
 (async function boot() {
   try {
     const info = await grokDesktop.appInfo();
-    ui.cliInfo.textContent = `${info.grokCli || "grok"} · v${info.desktopVersion || "0.6"}`;
+    ui.cliInfo.textContent = `${info.grokCli || "grok"} · v${info.desktopVersion || "0.7"}`;
     ui.cliInfo.title = `CLI: ${info.grokCli}\nHome: ${info.grokHome}`;
   } catch {
     ui.cliInfo.textContent = "未检测到 grok CLI";
@@ -4565,6 +4737,11 @@ document.addEventListener("keydown", (e) => {
   wireWallpaperUi();
   await loadWallpaperAssets();
   applyWallpaper();
+
+  // 首次 / 环境异常 → 引导
+  await showSetupIfNeeded(false);
+  // 后台检查更新（不挡启动）
+  void checkForUpdates(false);
 
   showWelcome();
   await refreshSessions();
