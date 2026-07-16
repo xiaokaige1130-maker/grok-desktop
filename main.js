@@ -878,6 +878,28 @@ ipcMain.handle("settings:saveDesktop", async (_e, partial) => {
   return settings.writeDesktopSettings(partial || {});
 });
 
+/** 内置壁纸绝对路径（打包后在 app 目录 assets/wallpapers） */
+ipcMain.handle("wallpaper:list", async () => {
+  const dir = path.join(__dirname, "assets", "wallpapers");
+  const presets = [
+    { id: "xmark", name: "X 标志", file: "wp-x-mark.jpg" },
+    { id: "rocket", name: "火箭", file: "wp-rocket.jpg" },
+    { id: "orbit", name: "轨道", file: "wp-orbit.jpg" },
+    { id: "space", name: "SPACE", file: "wp-space-type.jpg" },
+    { id: "stack", name: "多级箭体", file: "wp-stack.jpg" },
+  ];
+  return presets.map((p) => {
+    const full = path.join(dir, p.file);
+    const thumb = path.join(dir, p.file.replace(/\.jpg$/i, "-thumb.jpg"));
+    return {
+      id: p.id,
+      name: p.name,
+      path: fs.existsSync(full) ? full : null,
+      thumbPath: fs.existsSync(thumb) ? thumb : fs.existsSync(full) ? full : null,
+    };
+  });
+});
+
 ipcMain.handle("settings:saveGrok", async (_e, partial) => {
   return settings.updateGrokConfig(partial || {});
 });

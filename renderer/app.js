@@ -136,9 +136,6 @@ const ui = {
   stripEffort: $("strip-effort"),
   stripCwd: $("strip-cwd"),
   stripQueue: $("strip-queue"),
-  queuePanel: $("queue-panel"),
-  queueList: $("queue-list"),
-  queueClear: $("btn-queue-clear"),
   planPanel: $("plan-panel"),
   planList: $("plan-list"),
   planToggle: $("btn-plan-toggle"),
@@ -202,7 +199,16 @@ let desktopSettings = {
   autoApprove: true,
   openTabs: [],
   lastActiveId: null,
+  wallpaper: "none",
+  wallpaperPath: null,
+  wallpaperDim: 45,
 };
+/** 刚跑完、尚未点开的会话（左侧绿点） */
+/** @type {Set<string>} */
+const doneSessions = new Set();
+/** 曾经进入过 working 的会话，用于区分「真正结束」 */
+/** @type {Set<string>} */
+const everWorkedSessions = new Set();
 /** Last search query used for thread highlight */
 let lastSearchQuery = "";
 let persistTabsTimer = null;
@@ -238,6 +244,11 @@ let liveAgents = new Set();
 /** Per-session busy flag for tab indicators. */
 /** @type {Set<string>} */
 let workingSessions = new Set();
+/** 本轮 prompt 尚未返回（比 status 事件更可靠，避免中途误判为空闲导致插不进去） */
+/** @type {Set<string>} */
+const promptInFlight = new Set();
+/** 发送代数：打断后旧的 sendNow finally 不再 flush/改状态 */
+let sendGeneration = 0;
 /** Detached thread panes per session so parallel streams stay intact. */
 /** @type {Map<string, HTMLElement>} */
 const threadPanes = new Map();
@@ -329,10 +340,18 @@ function setStatus(state, detail) {
 /** True when this session should accept follow-ups into the queue (not a new prompt). */
 function isAgentBusy(sessionId = activeId) {
   if (!sessionId) return false;
+  // 最可靠：本轮 prompt 还在 await
+  if (promptInFlight.has(sessionId)) return true;
   if (workingSessions.has(sessionId)) return true;
   if (sessionId === activeId && busy) return true;
+  if (sessionId === activeId && ui.status?.dataset?.state === "working") return true;
   const st = sessionUi.get(sessionId);
   if (st && (st.statusState === "working" || st.statusState === "connecting")) return true;
+  // 状态文案兜底（思考中 / 连接中）
+  if (sessionId === activeId) {
+    const t = ui.status?.textContent || "";
+    if (/思考中|连接中|运行中/.test(t)) return true;
+  }
   return false;
 }
 
@@ -341,34 +360,30 @@ function refreshSendButtonState() {
   const agentBusy = isAgentBusy(activeId);
   const hasContent =
     !!ui.input?.value?.trim() || pendingImages.length > 0 || pendingFiles.length > 0;
-  // While agent works, ALWAYS allow typing (插话 / 排队)
   if (ui.input) ui.input.disabled = !canType;
   if (ui.fileBtn) ui.fileBtn.disabled = !canType;
   if (ui.modelBtn) ui.modelBtn.disabled = !canType || agentBusy;
   if (ui.effortBtn) ui.effortBtn.disabled = !canType || agentBusy;
   if (ui.send) {
     ui.send.disabled = !canType || !hasContent;
-    if (agentBusy) {
-      ui.send.textContent = hasContent ? "排队 ↑" : "排队 ↑";
-      ui.send.title = "加入队列：当前任务不停，结束后按顺序发送";
-      ui.send.classList.add("queue-mode");
-    } else {
-      ui.send.textContent = "发送 ↑";
-      ui.send.title = "发送";
-      ui.send.classList.remove("queue-mode");
-    }
+    // 忙时：回车/发送 = 进排队；引导在排队气泡上
+    ui.send.textContent = agentBusy ? "排队 ↑" : "发送 ↑";
+    ui.send.title = agentBusy
+      ? "先放进排队，确认后再点「引导」打断并发送"
+      : "发送";
+    ui.send.classList.toggle("queue-mode", !!agentBusy);
+    ui.send.classList.remove("insert-ready");
   }
   if (ui.cancel) ui.cancel.disabled = !agentBusy;
   if (ui.input) {
     ui.input.placeholder = agentBusy
-      ? "补充指示 · Enter 排队（不打断当前任务）…"
+      ? "写纠正… Enter 先排队，点「引导」才打断发送"
       : "消息 · 拖入图片 · / 命令 · @ 文件… Enter 发送";
   }
   $("composer")?.classList.toggle("is-busy", !!agentBusy);
 }
 
 function setComposerEnabled(on) {
-  // Can type even when busy (queue); only disable when no session / connecting
   const canType = !!on;
   if (!canType) {
     if (ui.input) ui.input.disabled = true;
@@ -382,10 +397,12 @@ function setComposerEnabled(on) {
     refreshSendButtonState();
   }
   updateLiveStrip();
-  renderQueuePanel();
 }
 
-/** Enqueue a follow-up while agent runs (task continues). */
+/**
+ * 任务进行中：Enter → 只排队（不打断）。
+ * 点排队气泡上的「引导」→ 打断并立刻发送。
+ */
 function enqueueFollowUp({ text, images, files }) {
   if (!activeId) return false;
   const item = {
@@ -395,102 +412,104 @@ function enqueueFollowUp({ text, images, files }) {
   };
   if (!item.text && !item.images.length && !item.files.length) return false;
   messageQueue.push(item);
-  const qIdx = messageQueue.length - 1;
-  try {
-    appendQueuedTurn(
-      item.text ||
-        (item.images.length ? `（${item.images.length} 张图片）` : "") ||
-        (item.files.length ? `（${item.files.length} 个文件）` : "补充指示"),
-      item.images,
-      qIdx,
-    );
-  } catch (err) {
-    console.warn("appendQueuedTurn failed", err);
-  }
-  // Keep stashed copy for tab switch
   const st = ensureSessionUi(activeId);
   st.messageQueue = messageQueue.slice();
-  renderQueuePanel();
+  rerenderQueuedTurns();
   updateLiveStrip();
   refreshSendButtonState();
-  // Brief status so it's obvious it landed
-  if (ui.status) {
-    const prev = ui.status.textContent;
-    setStatus("working", `已排队 #${qIdx + 1} · 任务继续`);
-    setTimeout(() => {
-      if (isAgentBusy(activeId)) setStatus("working", prev || "思考中…");
-    }, 1600);
-  }
   return true;
-}
-
-function renderQueuePanel() {
-  if (!ui.queuePanel || !ui.queueList) return;
-  if (!messageQueue.length) {
-    ui.queuePanel.classList.add("hidden");
-    ui.queueList.replaceChildren();
-    return;
-  }
-  ui.queuePanel.classList.remove("hidden");
-  ui.queueList.replaceChildren();
-  messageQueue.forEach((item, idx) => {
-    const row = document.createElement("div");
-    row.className = "queue-item";
-    const preview =
-      (item.text || "").trim() ||
-      (item.images?.length ? `（${item.images.length} 张图）` : "") ||
-      (item.files?.length ? `（${item.files.length} 个文件）` : "（空）");
-    row.innerHTML = `
-      <span class="q-idx">#${idx + 1}</span>
-      <span class="q-text"></span>
-      <button type="button" class="q-rm" title="移出队列">×</button>`;
-    row.querySelector(".q-text").textContent = preview;
-    row.querySelector(".q-rm").onclick = () => {
-      messageQueue.splice(idx, 1);
-      // remove matching pending bubble if any
-      ui.inner?.querySelector(`.turn.queued[data-queue-idx="${idx}"]`)?.remove();
-      // reindex remaining bubbles
-      ui.inner?.querySelectorAll(".turn.queued").forEach((el, i) => {
-        el.dataset.queueIdx = String(i);
-        const lab = el.querySelector(".queue-badge");
-        if (lab) lab.textContent = `排队 #${i + 1}`;
-      });
-      renderQueuePanel();
-      updateLiveStrip();
-      setComposerEnabled(!!activeId && !connecting);
-    };
-    ui.queueList.appendChild(row);
-  });
-}
-
-/** Show a ghost user bubble so "插消息" feels received immediately. */
-function appendQueuedTurn(text, images, queueIdx) {
-  ui.inner.querySelector(".welcome")?.remove();
-  const turn = document.createElement("div");
-  turn.className = "turn user queued";
-  turn.dataset.queueIdx = String(queueIdx);
-  const badge = document.createElement("div");
-  badge.className = "queue-badge";
-  badge.textContent = `排队 #${queueIdx + 1} · 当前任务结束后发送`;
-  turn.appendChild(badge);
-  if (images?.length) {
-    const media = ensureTurnMedia(turn);
-    for (const img of images) {
-      addImgToMediaRow(media, img.dataUrl || img, img.key || img.dataUrl || `q-${queueIdx}`);
-    }
-  }
-  if (text) {
-    const body = document.createElement("div");
-    body.className = "body";
-    body.textContent = text;
-    turn.appendChild(body);
-  }
-  ui.inner.appendChild(turn);
-  scrollThreadToBottom({ force: true });
 }
 
 function removeQueuedTurns() {
   ui.inner?.querySelectorAll(".turn.queued").forEach((el) => el.remove());
+}
+
+/** 在对话区画排队气泡：正文 + 「引导」+ 删除 */
+function rerenderQueuedTurns() {
+  removeQueuedTurns();
+  if (!messageQueue.length || !ui.inner) return;
+  ui.inner.querySelector(".welcome")?.remove();
+  messageQueue.forEach((item, idx) => {
+    const turn = document.createElement("div");
+    turn.className = "turn user queued";
+    turn.dataset.queueIdx = String(idx);
+
+    const head = document.createElement("div");
+    head.className = "queue-bubble-head";
+    const label = document.createElement("span");
+    label.className = "queue-badge";
+    label.textContent = "排队中";
+    const actions = document.createElement("div");
+    actions.className = "queue-bubble-actions";
+
+    const guideBtn = document.createElement("button");
+    guideBtn.type = "button";
+    guideBtn.className = "queue-guide-btn";
+    guideBtn.textContent = "引导";
+    guideBtn.title = "打断当前任务，立刻按这条发送";
+    guideBtn.onclick = (e) => {
+      e.stopPropagation();
+      void guideSendFromQueue(idx);
+    };
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "queue-del-btn";
+    delBtn.textContent = "删除";
+    delBtn.title = "从排队去掉";
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      messageQueue.splice(idx, 1);
+      const st = ensureSessionUi(activeId);
+      if (st) st.messageQueue = messageQueue.slice();
+      rerenderQueuedTurns();
+      updateLiveStrip();
+      refreshSendButtonState();
+    };
+
+    actions.append(guideBtn, delBtn);
+    head.append(label, actions);
+    turn.appendChild(head);
+
+    if (item.images?.length) {
+      const media = ensureTurnMedia(turn);
+      for (const img of item.images) {
+        addImgToMediaRow(media, img.dataUrl || img, img.key || img.dataUrl || `q-${idx}`);
+      }
+    }
+    if (item.text) {
+      const body = document.createElement("div");
+      body.className = "body";
+      body.textContent = item.text;
+      turn.appendChild(body);
+    }
+    ui.inner.appendChild(turn);
+  });
+  scrollThreadToBottom({ force: true });
+}
+
+/** 点「引导」：打断当前任务，立刻发送这一条 */
+async function guideSendFromQueue(idx) {
+  if (!activeId || idx < 0 || idx >= messageQueue.length) return;
+  const item = messageQueue[idx];
+  // 取出这一条，其余排队保留还是全清？用户确认后再发 → 引导 = 发这一条并清空排队
+  const payload = {
+    text: item.text || "",
+    images: (item.images || []).slice(),
+    files: (item.files || []).slice(),
+  };
+  messageQueue = [];
+  const st = ensureSessionUi(activeId);
+  st.messageQueue = [];
+  removeQueuedTurns();
+  updateLiveStrip();
+  try {
+    await interruptAndSend(payload);
+  } catch (err) {
+    appendBanner(`引导发送失败：${err?.message || err}`, "error");
+  }
+  refreshSendButtonState();
+  ui.input?.focus();
 }
 
 function updateLiveStrip() {
@@ -612,7 +631,7 @@ function restoreComposer(sessionId) {
   renderAttachPreview();
   renderContextChips();
   setComposerEnabled(!!sessionId && !connecting);
-  renderQueuePanel();
+  if (messageQueue.length) rerenderQueuedTurns();
 }
 
 function ensurePane(sessionId) {
@@ -2009,12 +2028,35 @@ function renderSidebar(filter = "") {
     for (const s of g.sessions) {
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "session-row" + (s.id === activeId ? " active" : "");
+      const working = workingSessions.has(s.id) || promptInFlight.has(s.id);
+      const done = !working && doneSessions.has(s.id);
+      row.className =
+        "session-row" +
+        (s.id === activeId ? " active" : "") +
+        (working ? " is-working" : "") +
+        (done ? " is-done" : "");
       row.dataset.sessionId = s.id;
-      row.innerHTML = `<span class="title"></span><span class="when"></span>`;
+      row.innerHTML = `
+        <span class="s-ind" aria-hidden="true"></span>
+        <span class="title"></span>
+        <span class="when"></span>`;
+      const ind = row.querySelector(".s-ind");
+      if (working) {
+        ind.className = "s-ind spin";
+        ind.title = "运行中";
+      } else if (done) {
+        ind.className = "s-ind done";
+        ind.title = "已完成 · 点开清除";
+      } else {
+        ind.className = "s-ind";
+      }
       row.querySelector(".title").textContent = s.title || s.id.slice(0, 8);
       row.querySelector(".title").title = s.title || s.id;
-      row.querySelector(".when").textContent = relativeTime(s.updatedAt);
+      row.querySelector(".when").textContent = working
+        ? "运行中"
+        : done
+          ? "已完成"
+          : relativeTime(s.updatedAt);
       row.onclick = (e) => {
         e.stopPropagation();
         if (view !== "chat") switchView("chat");
@@ -2029,9 +2071,51 @@ function renderSidebar(filter = "") {
 }
 
 function markActive(id) {
+  // 点开会话：清掉「已完成」绿点（用户已看到）
+  if (id && doneSessions.has(id)) {
+    doneSessions.delete(id);
+  }
+  // 整表刷新更稳（含 when 文案恢复相对时间）
+  renderSidebar(ui.search?.value || "");
   const rows = ui.list.querySelectorAll(".session-row");
-  if (!rows.length) return renderSidebar(ui.search.value);
   rows.forEach((r) => r.classList.toggle("active", r.dataset.sessionId === id));
+}
+
+/** 轻量刷新侧栏状态点，不整表重建 */
+function refreshSidebarSessionState() {
+  if (!ui.list) return;
+  const rows = ui.list.querySelectorAll(".session-row");
+  if (!rows.length) return;
+  rows.forEach((r) => {
+    const sid = r.dataset.sessionId;
+    if (!sid) return;
+    const working = workingSessions.has(sid) || promptInFlight.has(sid);
+    const done = !working && doneSessions.has(sid);
+    r.classList.toggle("is-working", working);
+    r.classList.toggle("is-done", done);
+    const ind = r.querySelector(".s-ind");
+    const when = r.querySelector(".when");
+    const s = sessions.find((x) => x.id === sid);
+    if (ind) {
+      if (working) {
+        ind.className = "s-ind spin";
+        ind.title = "运行中";
+      } else if (done) {
+        ind.className = "s-ind done";
+        ind.title = "已完成 · 点开清除";
+      } else {
+        ind.className = "s-ind";
+        ind.title = "";
+      }
+    }
+    if (when) {
+      when.textContent = working
+        ? "运行中"
+        : done
+          ? "已完成"
+          : relativeTime(s?.updatedAt);
+    }
+  });
 }
 
 async function refreshSessions() {
@@ -2944,17 +3028,50 @@ async function newSession() {
   }
 }
 
+/**
+ * CLI 风格插话：停掉当前轮 → 立刻发新话上屏，助手马上读到。
+ * （不是排队等本轮结束）
+ */
+async function interruptAndSend({ text, images, files }) {
+  const sid = activeId;
+  if (!sid) return;
+
+  // 作废旧 sendNow 的 finally（避免旧轮 flush/抢状态）
+  sendGeneration += 1;
+  const myGen = sendGeneration;
+
+  // 引导发送：清掉排队（调用方也可已清）
+  messageQueue = [];
+  const st = ensureSessionUi(sid);
+  st.messageQueue = [];
+  removeQueuedTurns();
+
+  setStatus("working", "打断中…");
+  try {
+    await grokDesktop.cancel(sid);
+  } catch {
+    /* 无进行中的轮次也没关系 */
+  }
+
+  promptInFlight.delete(sid);
+  workingSessions.delete(sid);
+
+  await new Promise((r) => setTimeout(r, 200));
+  if (myGen !== sendGeneration) return;
+
+  setBusy(false);
+  await sendNow({ text, images, files, sessionId: sid, generation: myGen });
+}
+
 async function send() {
   const text = ui.input.value.trim();
-  // Allow queue even if connecting finished but flag lagging; only block empty / no session
   if ((!text && !pendingImages.length && !pendingFiles.length) || !activeId) return;
-  // During session open we still block (agent not ready)
-  if (connecting && !isAgentBusy(activeId)) return;
+  if (connecting && !isAgentBusy(activeId) && !promptInFlight.has(activeId)) return;
 
   const images = pendingImages.slice();
   const files = pendingFiles.slice();
 
-  // 插话：任务进行中 → 加入队列，绝不打断
+  // 任务进行中 + Enter/排队按钮 → 只排队，不打断
   if (isAgentBusy(activeId)) {
     ui.input.value = "";
     pendingImages = [];
@@ -2964,6 +3081,7 @@ async function send() {
     autosize();
     enqueueFollowUp({ text, images, files });
     ui.input.focus();
+    refreshSendButtonState();
     return;
   }
 
@@ -2971,10 +3089,11 @@ async function send() {
     await sendNow({ text, images, files });
   } catch (err) {
     const msg = String(err?.message || err || "");
-    // Main process rejected concurrent prompt — fall back to queue
+    // 主进程仍忙 → 先进排队，由用户点「引导」
     if (/仍在处理|上一轮|busy|处理中/i.test(msg)) {
       enqueueFollowUp({ text, images, files });
       ui.input.focus();
+      refreshSendButtonState();
       return;
     }
     appendBanner(`发送失败：${msg}`, "error");
@@ -2985,13 +3104,15 @@ async function send() {
  * Send a prompt for a specific session (may not be the focused tab).
  * Fixes: queue was only flushed when user stayed on the same tab.
  */
-async function sendNow({ text, images, files, sessionId = null }) {
+async function sendNow({ text, images, files, sessionId = null, generation = null }) {
   const sentTo = sessionId || activeId;
   if (!sentTo) return;
   const isActive = sentTo === activeId;
   const st = ensureSessionUi(sentTo);
+  const myGen = generation != null ? generation : ++sendGeneration;
 
-  if (isActive) {
+  if (isActive && generation == null) {
+    // 非打断路径：在这里清输入；打断路径已在 send() 清过
     ui.input.value = "";
     pendingImages = [];
     pendingFiles = [];
@@ -3060,11 +3181,23 @@ async function sendNow({ text, images, files, sessionId = null }) {
   const promptText = buildPromptWithFiles(text, files);
   st.streamingEl = null;
   if (isActive) streamingEl = null;
+
+  // 仍有旧轮在飞且非引导路径：改排队，等用户点「引导」
+  if (promptInFlight.has(sentTo) && generation == null) {
+    if (isActive) enqueueFollowUp({ text, images, files });
+    return;
+  }
+
+  promptInFlight.add(sentTo);
   workingSessions.add(sentTo);
+  everWorkedSessions.add(sentTo);
+  doneSessions.delete(sentTo);
   scheduleRenderTabs(true);
+  refreshSidebarSessionState();
   if (isActive) {
     setBusy(true);
     setStatus("working", "思考中…");
+    refreshSendButtonState();
   }
   try {
     await grokDesktop.prompt({
@@ -3072,62 +3205,67 @@ async function sendNow({ text, images, files, sessionId = null }) {
       images: (images || []).map((i) => ({ mimeType: i.mimeType, dataBase64: i.dataBase64 })),
       sessionId: sentTo,
     });
-    workingSessions.delete(sentTo);
+    if (myGen !== sendGeneration) return;
     if (activeId === sentTo) setStatus("ready", "就绪");
     scheduleRenderTabs(true);
     void refreshSessions()
       .then(() => {
-        if (activeId) markActive(activeId);
+        // 不要 markActive：会清掉刚打上的「已完成」绿点
+        refreshSidebarSessionState();
       })
       .catch(() => {});
   } catch (err) {
-    workingSessions.delete(sentTo);
+    if (myGen !== sendGeneration) return; // 已被新一轮打断，忽略
+    const msg = String(err?.message || err || "");
     scheduleRenderTabs(true);
-    if (activeId === sentTo) {
-      setStatus("error", err?.message || "发送失败");
-      appendBanner(`发送失败：${err?.message || err}`, "error");
+    // cancel 导致的中止不算失败
+    if (/cancel|abort|中断|停止|disposed/i.test(msg)) {
+      /* ignore */
+    } else if (/仍在处理|上一轮|busy|处理中/i.test(msg)) {
+      if (isActive) enqueueFollowUp({ text, images, files });
+    } else if (activeId === sentTo) {
+      setStatus("error", msg || "发送失败");
+      appendBanner(`发送失败：${msg}`, "error");
     }
   } finally {
+    if (myGen !== sendGeneration) {
+      // 被更新的发送取代，不要清新一轮的 in-flight，也不要 flush
+      return;
+    }
+    promptInFlight.delete(sentTo);
+    workingSessions.delete(sentTo);
+    // 跑完打绿点；点开该会话时再清
+    doneSessions.add(sentTo);
+    everWorkedSessions.delete(sentTo);
     if (activeId === sentTo) {
       streamingEl = null;
-      setBusy(false);
+      if (!(st.messageQueue?.length || (activeId === sentTo && messageQueue.length))) {
+        setBusy(false);
+      }
+      setStatus("ready", "已完成");
     }
     st.streamingEl = null;
-    // Always flush THIS session's queue, even if user switched tabs
+    refreshSendButtonState();
+    renderSidebar(ui.search?.value || "");
     await flushSessionQueue(sentTo);
   }
 }
 
 /** Drain queued follow-ups for a session (works in background tabs). */
+/**
+ * 自动 flush 已关闭：排队只由用户点「引导」发出。
+ * 本轮结束后仍保留排队气泡，方便继续点引导。
+ */
 async function flushSessionQueue(sessionId) {
   if (!sessionId) return;
   const st = ensureSessionUi(sessionId);
   const isActive = sessionId === activeId;
-  // Queue lives in globals when focused, else in st
-  const q = isActive ? messageQueue : st.messageQueue || [];
-  if (!q.length) {
-    if (isActive) {
-      removeQueuedTurns();
-      renderQueuePanel();
-      updateLiveStrip();
-    }
-    return;
-  }
-  const next = q.shift();
   if (isActive) {
-    messageQueue = q;
-    ui.inner?.querySelector(".turn.queued[data-queue-idx='0']")?.remove();
-    ui.inner?.querySelectorAll(".turn.queued").forEach((el, i) => {
-      el.dataset.queueIdx = String(i);
-      const lab = el.querySelector(".queue-badge");
-      if (lab) lab.textContent = `排队 #${i + 1} · 当前任务结束后发送`;
-    });
-    renderQueuePanel();
+    // 同步 stash
+    st.messageQueue = messageQueue.slice();
+    if (messageQueue.length) rerenderQueuedTurns();
     updateLiveStrip();
-  } else {
-    st.messageQueue = q;
   }
-  await sendNow({ ...next, sessionId });
 }
 
 async function renameSessionUi(sessionId, currentTitle) {
@@ -3288,10 +3426,23 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
       st.statusState = state;
       st.statusDetail = detail || st.statusDetail;
     }
-    if (state === "working") workingSessions.add(sid);
-    else if (state === "ready" || state === "error" || state === "disconnected") {
-      workingSessions.delete(sid);
-      // Flush any leftover stream buffer and release content-visibility
+    if (state === "working") {
+      workingSessions.add(sid);
+      everWorkedSessions.add(sid);
+      doneSessions.delete(sid);
+    } else if (state === "ready" || state === "error" || state === "disconnected") {
+      // 本轮 prompt 还在 await 时，忽略中途的 ready，避免误判为空闲导致插不进去
+      if (!promptInFlight.has(sid)) {
+        const wasWorking = workingSessions.has(sid) || everWorkedSessions.has(sid);
+        workingSessions.delete(sid);
+        // 跑完 → 绿点（当前会话也显示，点开/再点一次清）
+        if (wasWorking && (state === "ready" || state === "error")) {
+          doneSessions.add(sid);
+        }
+        if (state === "ready" || state === "error") {
+          everWorkedSessions.delete(sid);
+        }
+      }
       if (st.chunkRaf) {
         cancelAnimationFrame(st.chunkRaf);
         st.chunkRaf = 0;
@@ -3303,12 +3454,23 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
     }
     if (session) st.meta = { ...(st.meta || {}), ...session };
     scheduleRenderTabs(state === "working" || state === "ready");
+    refreshSidebarSessionState();
   }
-  // Only update status pill / busy for active session
+  // 状态栏：仅当焦点会话，且不要在 promptInFlight 时被 ready 冲掉
   if (!sid || sid === activeId) {
-    if (state) setStatus(state, detail);
-    if (state === "working") setBusy(true);
-    if (state === "ready" || state === "error" || state === "disconnected") setBusy(false);
+    if (state === "working") {
+      if (state) setStatus(state, detail);
+      setBusy(true);
+      refreshSendButtonState();
+    } else if (state === "ready" || state === "error" || state === "disconnected") {
+      if (!promptInFlight.has(sid || activeId)) {
+        if (state) setStatus(state, detail);
+        setBusy(false);
+        refreshSendButtonState();
+      }
+    } else if (state) {
+      setStatus(state, detail);
+    }
   }
   if (session?.id && session.id === activeId) {
     applyHeader({ ...activeMeta, ...session });
@@ -3658,6 +3820,7 @@ async function loadSettings() {
     if ($("set-enter-send")) $("set-enter-send").checked = desktopSettings.enterToSend !== false;
     if ($("set-density")) $("set-density").value = desktopSettings.density || "comfortable";
     applyDensity(desktopSettings.density);
+    applyWallpaper();
 
     const grok = s.grok || {};
     if ($("set-permission")) $("set-permission").value = grok.permissionMode || "always-approve";
@@ -3708,6 +3871,196 @@ function applyDensity(d) {
   document.body.classList.toggle("compact", d === "compact");
 }
 
+const WALLPAPER_GRADIENTS = {
+  none: null,
+  aurora: "linear-gradient(145deg, #1a1030 0%, #0f172a 40%, #134e4a 100%)",
+  ember: "linear-gradient(160deg, #1c1010 0%, #3b1d1d 45%, #1a1020 100%)",
+  ocean: "linear-gradient(150deg, #0b1220 0%, #0e2a4a 50%, #0f172a 100%)",
+  mist: "linear-gradient(180deg, #18181b 0%, #27272a 50%, #1e1b2e 100%)",
+};
+
+/** 云端生成的黑白航天主题：id → 本地绝对路径 */
+/** @type {Record<string, {path:string,thumbPath?:string,name:string}>} */
+let wallpaperAssets = {};
+
+function pathToFileUrl(p) {
+  if (!p) return "";
+  const s = String(p);
+  if (s.startsWith("data:") || s.startsWith("file:") || s.startsWith("http")) return s;
+  return "file://" + s.replace(/\\/g, "/");
+}
+
+function applyWallpaper() {
+  const bg = $("thread-bg");
+  const dim = $("thread-bg-dim");
+  if (!bg || !dim) return;
+  const kind = desktopSettings.wallpaper || "none";
+  const dimVal = Math.min(80, Math.max(0, Number(desktopSettings.wallpaperDim) || 45));
+
+  bg.style.backgroundImage = "none";
+  bg.style.background = "none";
+  bg.style.backgroundSize = "cover";
+  bg.style.backgroundPosition = "center";
+  bg.style.backgroundRepeat = "no-repeat";
+
+  if (kind === "none" || !kind) {
+    bg.style.display = "none";
+    dim.style.display = "none";
+  } else if (kind === "custom" && (desktopSettings.wallpaperDataUrl || desktopSettings.wallpaperPath)) {
+    const src = desktopSettings.wallpaperDataUrl || desktopSettings.wallpaperPath;
+    bg.style.display = "block";
+    dim.style.display = "block";
+    bg.style.backgroundImage = `url("${pathToFileUrl(src).replace(/"/g, '\\"')}")`;
+    dim.style.opacity = String(dimVal / 100);
+  } else if (wallpaperAssets[kind]?.path) {
+    bg.style.display = "block";
+    dim.style.display = "block";
+    bg.style.backgroundImage = `url("${pathToFileUrl(wallpaperAssets[kind].path).replace(/"/g, '\\"')}")`;
+    dim.style.opacity = String(dimVal / 100);
+  } else if (WALLPAPER_GRADIENTS[kind]) {
+    bg.style.display = "block";
+    dim.style.display = "block";
+    bg.style.backgroundImage = "none";
+    bg.style.background = WALLPAPER_GRADIENTS[kind];
+    dim.style.opacity = String(dimVal / 100);
+  } else {
+    bg.style.display = "none";
+    dim.style.display = "none";
+  }
+
+  document.querySelectorAll(".wp-swatch").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.wp === kind);
+  });
+  if ($("set-wallpaper-dim")) $("set-wallpaper-dim").value = String(dimVal);
+  if ($("set-wallpaper-dim-val")) $("set-wallpaper-dim-val").textContent = String(dimVal);
+  const lab = $("wallpaper-custom-label");
+  if (lab) {
+    if (kind === "custom" && desktopSettings.wallpaperPath) {
+      lab.textContent = String(desktopSettings.wallpaperPath).split(/[/\\]/).pop();
+    } else if (kind === "custom" && desktopSettings.wallpaperDataUrl) {
+      lab.textContent = "已选图片";
+    } else if (wallpaperAssets[kind]) {
+      lab.textContent = wallpaperAssets[kind].name || kind;
+    } else {
+      lab.textContent = "未选择";
+    }
+  }
+}
+
+async function loadWallpaperAssets() {
+  try {
+    const list = (await grokDesktop.listWallpapers?.()) || [];
+    wallpaperAssets = {};
+    const grid = $("wallpaper-grid");
+    const customBtn = grid?.querySelector('[data-wp="custom"]');
+    for (const p of list) {
+      if (!p?.id || !p.path) continue;
+      wallpaperAssets[p.id] = p;
+      if (!grid) continue;
+      // 已有则更新背景，没有则插入
+      let btn = grid.querySelector(`[data-wp="${p.id}"]`);
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "wp-swatch wp-photo";
+        btn.dataset.wp = p.id;
+        btn.title = p.name || p.id;
+        if (customBtn) grid.insertBefore(btn, customBtn);
+        else grid.appendChild(btn);
+      }
+      const thumb = p.thumbPath || p.path;
+      btn.style.backgroundImage = `url("${pathToFileUrl(thumb).replace(/"/g, '\\"')}")`;
+      btn.style.backgroundSize = "cover";
+      btn.style.backgroundPosition = "center";
+      btn.textContent = "";
+    }
+  } catch (err) {
+    console.warn("loadWallpaperAssets", err);
+  }
+}
+
+function wireWallpaperUi() {
+  const grid = $("wallpaper-grid");
+  if (grid && !grid._wpBound) {
+    grid._wpBound = true;
+    grid.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".wp-swatch");
+      if (!btn) return;
+      const kind = btn.dataset.wp;
+      if (!kind) return;
+      if (kind === "custom") {
+        try {
+          const imgs = await grokDesktop.pickImages();
+          const one = Array.isArray(imgs) ? imgs[0] : null;
+          if (!one?.dataUrl) return;
+          desktopSettings = {
+            ...desktopSettings,
+            ...(await grokDesktop.saveDesktopSettings({
+              wallpaper: "custom",
+              wallpaperPath: one.path || one.name,
+              wallpaperDataUrl: one.dataUrl,
+              wallpaperDim: desktopSettings.wallpaperDim ?? 45,
+            })),
+          };
+        } catch (err) {
+          appendBanner(`选择图片失败：${err.message || err}`, "error");
+          return;
+        }
+      } else {
+        desktopSettings.wallpaper = kind;
+        try {
+          desktopSettings = {
+            ...desktopSettings,
+            ...(await grokDesktop.saveDesktopSettings({
+              wallpaper: kind,
+              wallpaperDim: desktopSettings.wallpaperDim ?? 45,
+            })),
+          };
+        } catch {
+          /* 本地预览优先 */
+        }
+      }
+      applyWallpaper();
+    });
+  }
+  $("btn-wallpaper-pick")?.addEventListener("click", async () => {
+    try {
+      const imgs = await grokDesktop.pickImages();
+      const one = Array.isArray(imgs) ? imgs[0] : null;
+      if (!one?.dataUrl) return;
+      desktopSettings = {
+        ...desktopSettings,
+        ...(await grokDesktop.saveDesktopSettings({
+          wallpaper: "custom",
+          wallpaperPath: one.path || one.name,
+          wallpaperDataUrl: one.dataUrl,
+        })),
+      };
+      applyWallpaper();
+    } catch (err) {
+      appendBanner(`选择图片失败：${err.message || err}`, "error");
+    }
+  });
+  $("set-wallpaper-dim")?.addEventListener("input", () => {
+    const v = Number($("set-wallpaper-dim").value) || 0;
+    if ($("set-wallpaper-dim-val")) $("set-wallpaper-dim-val").textContent = String(v);
+    desktopSettings.wallpaperDim = v;
+    applyWallpaper();
+  });
+  $("set-wallpaper-dim")?.addEventListener("change", async () => {
+    const v = Number($("set-wallpaper-dim").value) || 0;
+    try {
+      desktopSettings = {
+        ...desktopSettings,
+        ...(await grokDesktop.saveDesktopSettings({ wallpaperDim: v })),
+      };
+    } catch {
+      desktopSettings.wallpaperDim = v;
+    }
+    applyWallpaper();
+  });
+}
+
 $("btn-settings-save")?.addEventListener("click", async () => {
   const msg = $("settings-msg");
   if (msg) {
@@ -3720,8 +4073,13 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       enterToSend: !!$("set-enter-send")?.checked,
       density: $("set-density")?.value || "comfortable",
       autoApprove: !!$("set-auto-approve")?.checked,
+      wallpaper: desktopSettings.wallpaper || "none",
+      wallpaperPath: desktopSettings.wallpaperPath || null,
+      wallpaperDataUrl: desktopSettings.wallpaperDataUrl || null,
+      wallpaperDim: Number($("set-wallpaper-dim")?.value) || desktopSettings.wallpaperDim || 45,
     });
     applyDensity(desktopSettings.density);
+    applyWallpaper();
     try {
       await grokDesktop.setAutoApprove(desktopSettings.autoApprove !== false);
     } catch {
@@ -4049,13 +4407,7 @@ ui.cancel.addEventListener("click", async () => {
   );
   ui.input?.focus();
 });
-ui.queueClear?.addEventListener("click", () => {
-  messageQueue = [];
-  removeQueuedTurns();
-  renderQueuePanel();
-  updateLiveStrip();
-  setComposerEnabled(!!activeId && !connecting);
-});
+
 function onComposerInput() {
   refreshSendButtonState();
   autosize();
@@ -4211,9 +4563,13 @@ document.addEventListener("keydown", (e) => {
     const s = await grokDesktop.getSettings();
     desktopSettings = { ...desktopSettings, ...(s.desktop || {}) };
     applyDensity(desktopSettings.density);
+    applyWallpaper();
   } catch {
     /* ignore */
   }
+  wireWallpaperUi();
+  await loadWallpaperAssets();
+  applyWallpaper();
 
   showWelcome();
   await refreshSessions();

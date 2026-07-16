@@ -478,9 +478,12 @@ body.compact { font-size: 12.5px; }
 .project.collapsed .project-body { display: none; }
 
 .session-row {
-  display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center;
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 6px;
+  align-items: center;
   width: 100%; border: 0; background: transparent; color: #d4d4d8;
-  font: inherit; padding: 8px 10px 8px 22px; border-radius: 9px;
+  font: inherit; padding: 8px 10px 8px 10px; border-radius: 9px;
   cursor: pointer; text-align: left; margin: 1px 0; position: relative;
 }
 .session-row:hover { background: var(--hover); }
@@ -489,12 +492,38 @@ body.compact { font-size: 12.5px; }
   color: #fff;
   box-shadow: inset 2px 0 0 var(--accent);
 }
+.session-row .s-ind {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+  justify-self: center;
+}
+.session-row .s-ind.spin {
+  border: 1.5px solid transparent;
+  border-top-color: #fbbf24;
+  border-right-color: rgba(251, 191, 36, 0.35);
+  animation: sess-spin 0.7s linear infinite;
+  background: transparent;
+}
+.session-row .s-ind.done {
+  background: var(--ok);
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.65);
+}
+@keyframes sess-spin {
+  to { transform: rotate(360deg); }
+}
+.session-row.is-working .when { color: #fbbf24; }
+.session-row.is-done .when { color: #86efac; }
 .session-row .title {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; line-height: 1.3;
 }
 .session-row .when { font-size: 11px; color: var(--dim); white-space: nowrap; }
 .session-row.active .when { color: #c4b5fd; }
+.session-row.active.is-working .when { color: #fbbf24; }
+.session-row.active.is-done .when { color: #86efac; }
 
 .list-empty, .list-error {
   padding: 20px 12px; color: var(--dim); font-size: 12px; text-align: center; line-height: 1.5;
@@ -551,20 +580,96 @@ body.compact { font-size: 12.5px; }
 .status[data-state="connecting"] { color: var(--warn); border-color: rgba(251,191,36,.25); }
 .status[data-state="error"] { color: var(--err); border-color: rgba(251,113,133,.3); }
 
-/* Thread */
+/* Thread + wallpaper shell */
+.thread-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.thread-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: none;
+}
+.thread-bg-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: #0a0a0c;
+  opacity: 0.45;
+  display: none;
+}
 .thread {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  /* Isolate scroll layout from app chrome (no size containment — breaks flex) */
-  contain: layout style paint;
+  position: relative;
+  z-index: 2;
+  background: transparent !important;
 }
 .thread-inner {
   contain: layout style;
   min-height: min-content;
-
   max-width: var(--content); margin: 0 auto; padding: 12px 28px 24px;
+}
+
+/* Wallpaper picker */
+.wallpaper-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.wp-swatch {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: #121216;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.wp-swatch:hover { border-color: rgba(167, 139, 250, 0.5); }
+.wp-swatch.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35);
+}
+.wp-aurora { background: linear-gradient(145deg, #1a1030, #134e4a); }
+.wp-ember { background: linear-gradient(160deg, #1c1010, #3b1d1d); }
+.wp-ocean { background: linear-gradient(150deg, #0b1220, #0e2a4a); }
+.wp-mist { background: linear-gradient(180deg, #18181b, #1e1b2e); }
+.wp-custom { background: #1c1c24; color: #c4b5fd; font-weight: 650; }
+.wp-photo {
+  background-color: #0a0a0c;
+  overflow: hidden;
+}
+.wp-photo:hover { border-color: rgba(255, 255, 255, 0.45); }
+.wp-dim-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+.wp-dim-wrap input[type="range"] { flex: 1; accent-color: var(--accent); }
+.wp-dim-wrap span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  width: 24px;
+  text-align: right;
 }
 
 /* Welcome */
@@ -916,6 +1021,7 @@ body.compact { font-size: 12.5px; }
   display: flex;
   overflow: hidden;
 }
+.chat-body .thread-shell { flex: 1 1 auto; }
 .chat-body .thread { flex: 1 1 auto; }
 .plan-panel {
   flex: 0 0 260px;
@@ -1254,88 +1360,71 @@ body.compact { font-size: 12.5px; }
   font-size: 12px;
 }
 
-/* Follow-up queue panel */
-.queue-panel {
-  width: 100%;
-  max-width: var(--content);
-  margin: 0 0 8px;
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  background: rgba(40, 32, 12, 0.92);
+/* 排队气泡：在对话里，点「引导」才打断发送 */
+.turn.queued {
+  opacity: 0.95;
+  border: 1px solid rgba(161, 161, 170, 0.35);
   border-radius: 12px;
-  padding: 8px 10px 6px;
+  padding: 10px 12px !important;
+  margin: 8px 0;
+  background: rgba(39, 39, 47, 0.55);
 }
-.queue-panel.hidden { display: none !important; }
-.queue-panel-head {
+.queue-bubble-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 6px;
-  flex-wrap: wrap;
 }
-.queue-panel-title {
+.queue-badge {
+  font-size: 11px;
+  color: #a1a1aa;
+  font-weight: 600;
+}
+.queue-bubble-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.queue-guide-btn {
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  background: rgba(139, 92, 246, 0.18);
+  color: #ddd6fe;
+  font: inherit;
   font-size: 12px;
   font-weight: 650;
-  color: #fbbf24;
-}
-.queue-panel-hint {
-  font-size: 11px;
-  color: var(--dim);
-  flex: 1;
-}
-.queue-clear {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
-}
-.queue-clear:hover { color: #fda4af; background: rgba(251, 113, 133, 0.1); }
-.queue-list { display: flex; flex-direction: column; gap: 4px; }
-.queue-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 6px;
+  padding: 4px 12px;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.22);
-  font-size: 12px;
+  cursor: pointer;
 }
-.queue-item .q-idx {
-  color: #fbbf24;
-  font-family: var(--mono);
-  font-size: 11px;
-  flex-shrink: 0;
+.queue-guide-btn:hover {
+  background: rgba(139, 92, 246, 0.35);
+  color: #fff;
 }
-.queue-item .q-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-}
-.queue-item .q-rm {
+.queue-del-btn {
   border: 0;
   background: transparent;
   color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 4px;
 }
-.queue-item .q-rm:hover { color: #fda4af; }
+.queue-del-btn:hover { color: #fda4af; background: rgba(251, 113, 133, 0.12); }
+.turn.queued .body {
+  color: var(--text);
+  opacity: 0.9;
+}
 
 .composer.is-busy {
-  border-color: rgba(251, 191, 36, 0.45);
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12);
+  border-color: rgba(161, 161, 170, 0.4);
 }
 .btn.send.queue-mode {
-  background: linear-gradient(135deg, #d97706, #b45309);
-  border-color: transparent;
-  color: #fff;
-  font-weight: 650;
+  background: var(--panel);
+  border-color: rgba(161, 161, 170, 0.45);
+  color: var(--muted);
+  font-weight: 600;
 }
 .btn.send.queue-mode:disabled {
   opacity: 0.45;

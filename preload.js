@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveDesktopSettings: (p) => ipcRenderer.invoke("settings:saveDesktop", p),
   saveGrokSettings: (p) => ipcRenderer.invoke("settings:saveGrok", p),
+  listWallpapers: () => ipcRenderer.invoke("wallpaper:list"),
 
   // plugins
   listInstalledPlugins: () => ipcRenderer.invoke("plugins:listInstalled"),

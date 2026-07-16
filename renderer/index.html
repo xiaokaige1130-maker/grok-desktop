@@ -101,9 +101,13 @@
           </div>
 
           <div class="chat-body">
-            <div id="thread" class="thread">
-              <div id="thread-inner" class="thread-inner">
-                <!-- welcome injected by JS -->
+            <div class="thread-shell">
+              <div id="thread-bg" class="thread-bg" aria-hidden="true"></div>
+              <div id="thread-bg-dim" class="thread-bg-dim" aria-hidden="true"></div>
+              <div id="thread" class="thread">
+                <div id="thread-inner" class="thread-inner">
+                  <!-- welcome injected by JS -->
+                </div>
               </div>
             </div>
 
@@ -122,15 +126,6 @@
             <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="斜杠命令"></div>
             <div id="context-chips" class="context-chips hidden"></div>
             <div id="attach-preview" class="attach-preview hidden"></div>
-            <!-- Follow-up queue while agent is working -->
-            <div id="queue-panel" class="queue-panel hidden" aria-live="polite">
-              <div class="queue-panel-head">
-                <span class="queue-panel-title">补充指示已排队</span>
-                <span class="queue-panel-hint">当前任务不停 · 结束后按顺序发送</span>
-                <button type="button" class="queue-clear" id="btn-queue-clear" title="清空队列">清空</button>
-              </div>
-              <div id="queue-list" class="queue-list"></div>
-            </div>
             <div id="composer" class="composer">
               <textarea
                 id="input"
@@ -298,7 +293,7 @@
 
             <div class="settings-panel" id="panel-appearance" data-panel="appearance">
               <h1>外观</h1>
-              <p class="settings-lead">界面密度与布局</p>
+              <p class="settings-lead">界面密度、聊天背景</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
@@ -309,6 +304,36 @@
                     <option value="comfortable">舒适</option>
                     <option value="compact">紧凑</option>
                   </select>
+                </div>
+              </div>
+              <div class="scard" style="margin-top:12px">
+                <div class="scard-title" style="margin-bottom:8px">聊天背景</div>
+                <p class="scard-desc" style="margin-bottom:12px">只作用于中间对话区，可随时换</p>
+                <div class="wallpaper-grid" id="wallpaper-grid">
+                  <button type="button" class="wp-swatch active" data-wp="none" title="默认">无</button>
+                  <button type="button" class="wp-swatch wp-aurora" data-wp="aurora" title="极光"></button>
+                  <button type="button" class="wp-swatch wp-ember" data-wp="ember" title="余烬"></button>
+                  <button type="button" class="wp-swatch wp-ocean" data-wp="ocean" title="深海"></button>
+                  <button type="button" class="wp-swatch wp-mist" data-wp="mist" title="薄雾"></button>
+                  <!-- 黑白航天主题（云端生成）由 JS 注入 -->
+                  <button type="button" class="wp-swatch wp-custom" data-wp="custom" title="自选图片">图</button>
+                </div>
+                <div class="scard-row" style="margin-top:12px">
+                  <div>
+                    <div class="scard-title">背景压暗</div>
+                    <div class="scard-desc">越大字越清晰</div>
+                  </div>
+                  <div class="wp-dim-wrap">
+                    <input type="range" id="set-wallpaper-dim" min="0" max="80" value="45" />
+                    <span id="set-wallpaper-dim-val">45</span>
+                  </div>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">自选图片</div>
+                    <div class="scard-desc" id="wallpaper-custom-label">未选择</div>
+                  </div>
+                  <button type="button" class="btn" id="btn-wallpaper-pick">选择图片</button>
                 </div>
               </div>
             </div>

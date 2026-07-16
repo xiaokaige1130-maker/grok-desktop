@@ -21,6 +21,12 @@ const DEFAULT_DESKTOP = {
   openTabs: [],
   /** Last focused session id */
   lastActiveId: null,
+  /** 聊天背景：none | aurora | ember | ocean | mist | custom */
+  wallpaper: "none",
+  /** 自定义壁纸绝对路径 */
+  wallpaperPath: null,
+  /** 背景压暗 0–80 */
+  wallpaperDim: 45,
 };
 
 function configPath() {

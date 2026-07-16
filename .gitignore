@@ -8,3 +8,6 @@ release/
 !.env.example
 images/
 *.asar
+
+# 误生成的根目录页面
+/index.html
