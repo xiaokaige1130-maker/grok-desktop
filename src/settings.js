@@ -33,6 +33,13 @@ const DEFAULT_DESKTOP = {
   checkUpdates: true,
   /** 是否已完成首次环境引导 */
   setupDismissed: false,
+  /** 界面语言 zh | en */
+  locale: "zh",
+  /**
+   * 访问模式（产品化权限）
+   * safe = 审批 · balanced = 智能 · full = 完全访问
+   */
+  accessMode: "full",
 };
 
 function configPath() {

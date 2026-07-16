@@ -23,33 +23,33 @@
 
         <button type="button" class="btn-new" id="btn-new">
           <span class="plus">＋</span>
-          <span>新对话</span>
+          <span data-i18n="nav.newChat">新对话</span>
           <kbd>N</kbd>
         </button>
 
         <nav class="rail-nav" aria-label="主导航">
           <button type="button" class="rail-item active" data-view="chat">
-            <span class="rail-ico">💬</span><span>对话</span>
+            <span class="rail-ico">💬</span><span data-i18n="nav.chat">对话</span>
           </button>
           <button type="button" class="rail-item" data-view="memory">
-            <span class="rail-ico">🧠</span><span>记忆</span>
+            <span class="rail-ico">🧠</span><span data-i18n="nav.memory">记忆</span>
           </button>
           <button type="button" class="rail-item" data-view="skills">
-            <span class="rail-ico">⚡</span><span>Skills</span>
+            <span class="rail-ico">⚡</span><span data-i18n="nav.skills">Skills</span>
           </button>
           <button type="button" class="rail-item" data-view="plugins">
-            <span class="rail-ico">🧩</span><span>插件</span>
+            <span class="rail-ico">🧩</span><span data-i18n="nav.plugins">插件</span>
           </button>
         </nav>
 
         <div class="session-panel" id="session-section">
           <div class="panel-head">
-            <span>最近会话</span>
-            <button type="button" id="btn-refresh" class="icon-btn" title="刷新列表">↻</button>
+            <span data-i18n="nav.recent">最近会话</span>
+            <button type="button" id="btn-refresh" class="icon-btn" data-i18n-title="nav.refresh" title="刷新列表">↻</button>
           </div>
           <label class="search-box" for="search">
             <span>⌕</span>
-            <input id="search" type="search" placeholder="搜索标题 / 全文…" autocomplete="off" />
+            <input id="search" type="search" data-i18n-placeholder="nav.searchPh" placeholder="搜索标题 / 全文…" autocomplete="off" />
           </label>
           <div id="search-hits" class="search-hits hidden" role="list"></div>
           <div id="session-list" class="session-list" role="list"></div>
@@ -57,7 +57,7 @@
 
         <div class="side-bottom-nav">
           <button type="button" class="rail-item settings-item" id="nav-settings" data-view="settings">
-            <span class="rail-ico">⚙</span><span>设置</span>
+            <span class="rail-ico">⚙</span><span data-i18n="nav.settings">设置</span>
           </button>
         </div>
 
@@ -77,17 +77,24 @@
             </div>
             <div class="topbar-right">
               <div class="session-actions hidden" id="session-actions">
-                <button type="button" class="btn ghost" id="btn-act-export" title="导出 Markdown">导出</button>
-                <button type="button" class="btn ghost" id="btn-rename" title="重命名">重命名</button>
-                <button type="button" class="btn ghost danger" id="btn-delete" title="删除会话">删除</button>
+                <button type="button" class="btn plan-btn" id="btn-plan-toggle" data-i18n-title="chat.planHint" title="打开 / 关闭计划面板">
+                  <span class="plan-btn-ico" aria-hidden="true">☰</span>
+                  <span data-i18n="chat.plan">计划</span>
+                  <span class="plan-badge hidden" id="plan-badge">0</span>
+                </button>
+                <button type="button" class="btn ghost" id="btn-act-export" title="导出 Markdown" data-i18n="chat.export">导出</button>
+                <button type="button" class="btn ghost" id="btn-rename" title="重命名" data-i18n="chat.rename">重命名</button>
+                <button type="button" class="btn ghost danger" id="btn-delete" title="删除会话" data-i18n="chat.delete">删除</button>
               </div>
-              <div id="status-pill" class="status" data-state="idle">就绪</div>
+              <div id="status-pill" class="status" data-state="idle" data-i18n="chat.ready">就绪</div>
             </div>
           </header>
 
           <div id="session-tabs" class="session-tabs hidden" role="tablist" aria-label="打开的会话"></div>
 
           <div id="live-strip" class="live-strip hidden">
+            <span id="strip-access" class="access-chip" title="">—</span>
+            <span class="dot">·</span>
             <span id="strip-model">—</span>
             <span class="dot">·</span>
             <span id="strip-effort">—</span>
@@ -96,7 +103,7 @@
             <span class="dot">·</span>
             <span id="strip-queue" class="hidden">队列 0</span>
             <span class="dot plan-dot hidden" id="plan-dot">·</span>
-            <button type="button" id="btn-plan-toggle" class="strip-link hidden" title="查看计划">计划</button>
+            <button type="button" id="btn-plan-toggle-strip" class="strip-link hidden" data-i18n="chat.plan" data-i18n-title="chat.planHint">计划</button>
           </div>
 
           <div class="chat-body">
@@ -112,11 +119,14 @@
 
             <aside id="plan-panel" class="plan-panel hidden" aria-label="执行计划">
               <div class="plan-panel-head">
-                <strong>计划</strong>
-                <button type="button" class="icon-btn" id="btn-plan-close" title="关闭">✕</button>
+                <div class="plan-panel-title">
+                  <strong data-i18n="chat.planTitle">执行计划</strong>
+                  <span class="plan-progress hidden" id="plan-progress"></span>
+                </div>
+                <button type="button" class="icon-btn" id="btn-plan-close" data-i18n-title="chat.planClose" title="关闭计划面板">✕</button>
               </div>
               <div id="plan-list" class="plan-list">
-                <div class="plan-empty">尚无计划条目。助手进入计划模式后会出现在这里。</div>
+                <div class="plan-empty" data-i18n="chat.planEmpty">尚无计划条目。助手进入计划模式后会出现在这里。</div>
               </div>
             </aside>
           </div>
@@ -129,31 +139,32 @@
               <textarea
                 id="input"
                 rows="1"
+                data-i18n-placeholder="chat.inputPh"
                 placeholder="消息 · 拖入图片 · / 命令 · @ 文件… Enter 发送"
                 disabled
               ></textarea>
               <div class="composer-bar">
                 <div class="composer-left">
-                  <button type="button" id="btn-file" class="icon-btn" title="附加文件 @" disabled>@</button>
-                  <span id="cwd-chip" class="chip">未选择工作目录</span>
+                  <button type="button" id="btn-file" class="icon-btn" data-i18n-title="chat.attachFile" title="附加文件 @" disabled>@</button>
+                  <span id="cwd-chip" class="chip" data-i18n="chat.noCwd">未选择工作目录</span>
                 </div>
                 <div class="composer-right">
                   <div class="model-wrap">
                     <div id="effort-popover" class="model-popover hidden" role="listbox"></div>
                     <button type="button" id="btn-effort" class="btn-model" disabled title="推理强度">
-                      <span id="effort-label">强度</span>
+                      <span id="effort-label" data-i18n="chat.effort">强度</span>
                       <span class="caret">▴</span>
                     </button>
                   </div>
                   <div class="model-wrap">
                     <div id="model-popover" class="model-popover hidden" role="listbox"></div>
                     <button type="button" id="btn-model" class="btn-model" disabled title="选择模型">
-                      <span id="model-label">模型</span>
+                      <span id="model-label" data-i18n="chat.model">模型</span>
                       <span class="caret">▴</span>
                     </button>
                   </div>
-                  <button type="button" id="btn-cancel" class="btn ghost" disabled>停止</button>
-                  <button type="button" id="btn-send" class="btn send" disabled title="发送">发送 ↑</button>
+                  <button type="button" id="btn-cancel" class="btn ghost" disabled data-i18n="chat.stop">停止</button>
+                  <button type="button" id="btn-send" class="btn send" disabled title="发送" data-i18n="chat.send">发送 ↑</button>
                 </div>
               </div>
             </div>
@@ -248,104 +259,116 @@
         <!-- SETTINGS: Codex-style left categories + right content -->
         <div id="view-settings" class="view settings-shell">
           <aside class="settings-rail">
-            <button type="button" class="settings-back" id="settings-back">← 返回应用</button>
+            <button type="button" class="settings-back" id="settings-back" data-i18n="settings.back">← 返回应用</button>
             <div class="settings-search">
-              <input type="search" id="settings-search" placeholder="搜索设置…" autocomplete="off" />
+              <input type="search" id="settings-search" data-i18n-placeholder="settings.searchPh" placeholder="搜索设置…" autocomplete="off" />
             </div>
             <div class="settings-nav-scroll">
-              <div class="sn-group">个人</div>
-              <button type="button" class="sn-item active" data-panel="general">⚙ 常规</button>
-              <button type="button" class="sn-item" data-panel="appearance">◐ 外观</button>
-              <button type="button" class="sn-item" data-panel="model">✦ 模型</button>
-              <button type="button" class="sn-item" data-panel="memory">🧠 记忆</button>
-              <div class="sn-group">权限与安全</div>
-              <button type="button" class="sn-item" data-panel="permissions">🛡 权限</button>
-              <div class="sn-group">集成</div>
-              <button type="button" class="sn-item" data-panel="skills">⚡ Skills</button>
-              <button type="button" class="sn-item" data-panel="plugins">🧩 插件</button>
-              <button type="button" class="sn-item" data-panel="mcp">🔌 MCP</button>
-              <div class="sn-group">关于</div>
-              <button type="button" class="sn-item" data-panel="about">ℹ 环境</button>
+              <div class="sn-group" data-i18n="settings.group.personal">个人</div>
+              <button type="button" class="sn-item active" data-panel="general">⚙ <span data-i18n="settings.general">常规</span></button>
+              <button type="button" class="sn-item" data-panel="appearance">◐ <span data-i18n="settings.appearance">外观</span></button>
+              <button type="button" class="sn-item" data-panel="model">✦ <span data-i18n="settings.model">模型</span></button>
+              <button type="button" class="sn-item" data-panel="memory">🧠 <span data-i18n="settings.memory">记忆</span></button>
+              <div class="sn-group" data-i18n="settings.group.security">权限与安全</div>
+              <button type="button" class="sn-item" data-panel="permissions">🛡 <span data-i18n="settings.permissions">权限</span></button>
+              <div class="sn-group" data-i18n="settings.group.integrations">集成</div>
+              <button type="button" class="sn-item" data-panel="skills">⚡ <span data-i18n="settings.skills">Skills</span></button>
+              <button type="button" class="sn-item" data-panel="plugins">🧩 <span data-i18n="settings.plugins">插件</span></button>
+              <button type="button" class="sn-item" data-panel="mcp">🔌 <span data-i18n="settings.mcp">MCP</span></button>
+              <div class="sn-group" data-i18n="settings.group.about">关于</div>
+              <button type="button" class="sn-item" data-panel="about">ℹ <span data-i18n="settings.about">环境</span></button>
             </div>
           </aside>
           <section class="settings-main">
             <div class="settings-panel active" id="panel-general" data-panel="general">
-              <h1>常规</h1>
-              <p class="settings-lead">输入、通知与更新</p>
+              <h1 data-i18n="settings.general">常规</h1>
+              <p class="settings-lead" data-i18n="settings.generalLead">语言、输入、通知与更新</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">Enter 发送消息</div>
-                    <div class="scard-desc">空闲时发送；任务进行中为排队。Shift+Enter 始终换行</div>
+                    <div class="scard-title" data-i18n="settings.language">界面语言</div>
+                    <div class="scard-desc" data-i18n="settings.languageDesc">中文 / English，立即生效</div>
+                  </div>
+                  <select id="set-locale">
+                    <option value="zh">中文</option>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title" data-i18n="settings.enterSend">Enter 发送消息</div>
+                    <div class="scard-desc" data-i18n="settings.enterSendDesc">空闲时发送；任务进行中为排队。Shift+Enter 始终换行</div>
                   </div>
                   <input type="checkbox" id="set-enter-send" class="toggle" />
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">显示思考过程</div>
-                    <div class="scard-desc">在对话中展示模型的思考片段</div>
+                    <div class="scard-title" data-i18n="settings.showThinking">显示思考过程</div>
+                    <div class="scard-desc" data-i18n="settings.showThinkingDesc">在对话中展示模型的思考片段</div>
                   </div>
                   <input type="checkbox" id="set-show-thinking" class="toggle" />
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">完成后通知</div>
-                    <div class="scard-desc">后台会话跑完时弹出系统通知（当前会话不打扰）</div>
+                    <div class="scard-title" data-i18n="settings.notifyDone">完成后通知</div>
+                    <div class="scard-desc" data-i18n="settings.notifyDoneDesc">后台会话跑完时弹出系统通知（当前会话不打扰）</div>
                   </div>
                   <input type="checkbox" id="set-notify-done" class="toggle" />
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">启动时检查更新</div>
-                    <div class="scard-desc">向 GitHub 查询是否有新版本（仅提示，不自动安装）</div>
+                    <div class="scard-title" data-i18n="settings.checkUpdates">启动时检查更新</div>
+                    <div class="scard-desc" data-i18n="settings.checkUpdatesDesc">向 GitHub 查询是否有新版本（仅提示，不自动安装）</div>
                   </div>
                   <input type="checkbox" id="set-check-updates" class="toggle" />
                 </div>
               </div>
-              <div class="scard" style="margin-top:12px">
-                <div class="scard-title" style="margin-bottom:8px">常用快捷键</div>
+              <div class="scard">
+                <div class="scard-head" data-i18n="settings.shortcuts">常用快捷键</div>
                 <div class="shortcut-list">
-                  <div><kbd>Enter</kbd><span>发送 / 任务中排队</span></div>
-                  <div><kbd>Shift</kbd>+<kbd>Enter</kbd><span>换行</span></div>
-                  <div><span class="kbd-txt">排队气泡 · 引导</span><span>打断并立刻发送纠正</span></div>
-                  <div><kbd>N</kbd><span>新对话（焦点不在输入框时）</span></div>
-                  <div><kbd>Ctrl</kbd>+<kbd>Tab</kbd><span>切换已打开会话</span></div>
-                  <div><kbd>/</kbd><span>斜杠命令</span></div>
+                  <div><kbd>Enter</kbd><span data-i18n="sc.enter">发送 / 任务中排队</span></div>
+                  <div><kbd>Shift</kbd>+<kbd>Enter</kbd><span data-i18n="sc.shiftEnter">换行</span></div>
+                  <div><span class="kbd-txt">引导</span><span data-i18n="sc.guide">打断并立刻发送纠正</span></div>
+                  <div><kbd>P</kbd><span data-i18n="sc.plan">打开 / 关闭计划面板</span></div>
+                  <div><kbd>N</kbd><span data-i18n="sc.n">新对话（焦点不在输入框时）</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>Tab</kbd><span data-i18n="sc.tab">切换已打开会话</span></div>
+                  <div><kbd>/</kbd><span data-i18n="sc.slash">斜杠命令</span></div>
                 </div>
               </div>
             </div>
 
             <div class="settings-panel" id="panel-appearance" data-panel="appearance">
-              <h1>外观</h1>
-              <p class="settings-lead">界面密度、聊天背景</p>
+              <h1 data-i18n="settings.appearance">外观</h1>
+              <p class="settings-lead" data-i18n="settings.appearanceLead">界面密度、聊天背景</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">界面密度</div>
-                    <div class="scard-desc">紧凑模式减少间距，一屏显示更多内容</div>
+                    <div class="scard-title" data-i18n="settings.density">界面密度</div>
+                    <div class="scard-desc" data-i18n="settings.densityDesc">紧凑模式减少间距，一屏显示更多内容</div>
                   </div>
                   <select id="set-density">
-                    <option value="comfortable">舒适</option>
-                    <option value="compact">紧凑</option>
+                    <option value="comfortable" data-i18n="settings.density.comfortable">舒适</option>
+                    <option value="compact" data-i18n="settings.density.compact">紧凑</option>
                   </select>
                 </div>
               </div>
-              <div class="scard" style="margin-top:12px">
-                <div class="scard-title" style="margin-bottom:8px">聊天背景</div>
-                <p class="scard-desc" style="margin-bottom:12px">只作用于中间对话区，可随时换</p>
-                <div class="wallpaper-grid" id="wallpaper-grid">
-                  <button type="button" class="wp-swatch active" data-wp="none" title="默认">无</button>
-                  <button type="button" class="wp-swatch wp-aurora" data-wp="aurora" title="极光"></button>
-                  <button type="button" class="wp-swatch wp-ember" data-wp="ember" title="余烬"></button>
-                  <button type="button" class="wp-swatch wp-ocean" data-wp="ocean" title="深海"></button>
-                  <button type="button" class="wp-swatch wp-mist" data-wp="mist" title="薄雾"></button>
-                  <!-- 黑白航天主题（云端生成）由 JS 注入 -->
-                  <button type="button" class="wp-swatch wp-custom" data-wp="custom" title="自选图片">图</button>
+              <div class="scard">
+                <div class="scard-head" data-i18n="settings.wallpaper">聊天背景</div>
+                <div class="scard-pad">
+                  <p class="scard-desc scard-desc-block" data-i18n="settings.wallpaperDesc">只作用于中间对话区，可随时换</p>
+                  <div class="wallpaper-grid" id="wallpaper-grid">
+                    <button type="button" class="wp-swatch active" data-wp="none" title="默认">无</button>
+                    <button type="button" class="wp-swatch wp-aurora" data-wp="aurora" title="极光"></button>
+                    <button type="button" class="wp-swatch wp-ember" data-wp="ember" title="余烬"></button>
+                    <button type="button" class="wp-swatch wp-ocean" data-wp="ocean" title="深海"></button>
+                    <button type="button" class="wp-swatch wp-mist" data-wp="mist" title="薄雾"></button>
+                    <button type="button" class="wp-swatch wp-custom" data-wp="custom" title="自选图片">图</button>
+                  </div>
                 </div>
-                <div class="scard-row" style="margin-top:12px">
+                <div class="scard-row">
                   <div>
-                    <div class="scard-title">背景压暗</div>
-                    <div class="scard-desc">越大字越清晰</div>
+                    <div class="scard-title" data-i18n="settings.wallpaperDim">背景压暗</div>
+                    <div class="scard-desc" data-i18n="settings.wallpaperDimDesc">越大字越清晰</div>
                   </div>
                   <div class="wp-dim-wrap">
                     <input type="range" id="set-wallpaper-dim" min="0" max="80" value="45" />
@@ -354,22 +377,22 @@
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">自选图片</div>
+                    <div class="scard-title" data-i18n="settings.wallpaperCustom">自选图片</div>
                     <div class="scard-desc" id="wallpaper-custom-label">未选择</div>
                   </div>
-                  <button type="button" class="btn" id="btn-wallpaper-pick">选择图片</button>
+                  <button type="button" class="btn" id="btn-wallpaper-pick" data-i18n="settings.wallpaperPick">选择图片</button>
                 </div>
               </div>
             </div>
 
             <div class="settings-panel" id="panel-model" data-panel="model">
-              <h1>模型</h1>
-              <p class="settings-lead">默认模型（也可在对话输入框旁随时切换）</p>
+              <h1 data-i18n="settings.model">模型</h1>
+              <p class="settings-lead" data-i18n="settings.modelLead">默认模型（也可在对话输入框旁随时切换）</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">默认模型</div>
-                    <div class="scard-desc">新会话默认使用的模型</div>
+                    <div class="scard-title" data-i18n="settings.defaultModel">默认模型</div>
+                    <div class="scard-desc" data-i18n="settings.defaultModelDesc">新会话默认使用的模型</div>
                   </div>
                   <select id="set-model"></select>
                 </div>
@@ -377,50 +400,63 @@
             </div>
 
             <div class="settings-panel" id="panel-memory" data-panel="memory">
-              <h1>记忆</h1>
-              <p class="settings-lead">跨会话记住项目约定与偏好</p>
+              <h1 data-i18n="settings.memory">记忆</h1>
+              <p class="settings-lead" data-i18n="settings.memoryLead">跨会话记住项目约定与偏好</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">启用跨会话记忆</div>
-                    <div class="scard-desc">开启后新连接的 agent 会读取 ~/.grok/memory</div>
+                    <div class="scard-title" data-i18n="settings.memoryEnable">启用跨会话记忆</div>
+                    <div class="scard-desc" data-i18n="settings.memoryEnableDesc">开启后新连接的 agent 会读取 ~/.grok/memory</div>
                   </div>
                   <input type="checkbox" id="set-memory" class="toggle" />
                 </div>
               </div>
-              <button type="button" class="btn" id="settings-goto-memory">打开记忆管理 →</button>
+              <button type="button" class="btn" id="settings-goto-memory" data-i18n="settings.openMemory">打开记忆管理 →</button>
             </div>
 
             <div class="settings-panel" id="panel-permissions" data-panel="permissions">
-              <h1>权限</h1>
-              <p class="settings-lead">工具执行时如何请求确认</p>
+              <h1 data-i18n="settings.permissions">权限</h1>
+              <p class="settings-lead" data-i18n="settings.permissionsLead">控制助手访问本机文件与命令的方式</p>
               <div class="scard">
-                <div class="scard-row">
-                  <div>
-                    <div class="scard-title">权限模式</div>
-                    <div class="scard-desc">始终批准适合本机桌面自用</div>
+                <div class="scard-head" data-i18n="settings.accessMode">访问模式</div>
+                <div class="scard-pad">
+                  <p class="scard-desc scard-desc-block" data-i18n="settings.accessModeDesc">一键切换审批强度，更像可上线产品的安全策略</p>
+                  <div class="mode-cards" id="access-mode-cards" role="radiogroup" aria-label="访问模式">
+                    <button type="button" class="mode-card" data-mode="safe" role="radio" aria-checked="false">
+                      <div class="mode-card-top">
+                        <span class="mode-card-ico">🛡</span>
+                        <span class="mode-card-title" data-i18n="access.safe">审批模式</span>
+                      </div>
+                      <p class="mode-card-desc" data-i18n="access.safeDesc">写文件、跑命令前需要你确认。最安全，适合陌生仓库。</p>
+                    </button>
+                    <button type="button" class="mode-card recommended" data-mode="balanced" role="radio" aria-checked="false">
+                      <div class="mode-card-top">
+                        <span class="mode-card-ico">✦</span>
+                        <span class="mode-card-title" data-i18n="access.balanced">智能模式</span>
+                        <span class="mode-pill">Recommended</span>
+                      </div>
+                      <p class="mode-card-desc" data-i18n="access.balancedDesc">常规工具自动放行，高风险操作仍会提示。推荐日常使用。</p>
+                    </button>
+                    <button type="button" class="mode-card" data-mode="full" role="radio" aria-checked="false">
+                      <div class="mode-card-top">
+                        <span class="mode-card-ico">⚡</span>
+                        <span class="mode-card-title" data-i18n="access.full">完全访问</span>
+                      </div>
+                      <p class="mode-card-desc" data-i18n="access.fullDesc">工具默认自动批准，效率最高。仅建议在可信本机项目使用。</p>
+                    </button>
                   </div>
-                  <select id="set-permission">
-                    <option value="always-approve">始终批准</option>
-                    <option value="default">默认</option>
-                    <option value="ask">每次询问</option>
-                  </select>
                 </div>
-                <div class="scard-row">
+                <div class="scard-row" id="yolo-row">
                   <div>
-                    <div class="scard-title">YOLO 全自动</div>
-                    <div class="scard-desc">更激进的自动执行（有风险）</div>
+                    <div class="scard-title" data-i18n="access.yolo">YOLO 全自动</div>
+                    <div class="scard-desc" data-i18n="access.yoloDesc">更激进的自动执行（有风险，仅限完全信任的环境）</div>
                   </div>
                   <input type="checkbox" id="set-yolo" class="toggle" />
                 </div>
-                <div class="scard-row">
-                  <div>
-                    <div class="scard-title">自动批准工具</div>
-                    <div class="scard-desc">关闭后，写文件/跑命令会弹出权限卡片（更像 Codex）</div>
-                  </div>
-                  <input type="checkbox" id="set-auto-approve" class="toggle" />
-                </div>
               </div>
+              <!-- legacy hidden fields kept for save pipeline -->
+              <input type="hidden" id="set-permission" value="always-approve" />
+              <input type="hidden" id="set-auto-approve" value="1" />
             </div>
 
             <div class="settings-panel" id="panel-skills" data-panel="skills">
@@ -453,65 +489,65 @@
             </div>
 
             <div class="settings-panel" id="panel-about" data-panel="about">
-              <h1>环境</h1>
-              <p class="settings-lead">本机路径、CLI 与更新</p>
+              <h1 data-i18n="settings.about">环境</h1>
+              <p class="settings-lead" data-i18n="settings.aboutLead">本机路径、CLI 与更新</p>
               <div class="scard about-card">
-                <div class="path-row"><span>桌面版</span><code id="set-desktop-ver">—</code></div>
+                <div class="path-row"><span>Desktop</span><code id="set-desktop-ver">—</code></div>
                 <div class="path-row"><span>GROK_HOME</span><code id="set-grok-home">—</code></div>
                 <div class="path-row"><span>CLI</span><code id="set-cli">—</code></div>
                 <div class="path-row"><span>config.toml</span><code id="set-config-path">—</code></div>
               </div>
-              <div class="scard" style="margin-top:12px">
+              <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">检查更新</div>
-                    <div class="scard-desc" id="update-check-desc">查询 GitHub 最新 Release</div>
+                    <div class="scard-title" data-i18n="settings.checkUpdate">检查更新</div>
+                    <div class="scard-desc" id="update-check-desc" data-i18n="settings.checkUpdateDesc">查询 GitHub 最新 Release</div>
                   </div>
-                  <button type="button" class="btn" id="btn-check-update">检查</button>
+                  <button type="button" class="btn" id="btn-check-update">Check</button>
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">重新检测环境</div>
-                    <div class="scard-desc">CLI 是否安装、是否已登录</div>
+                    <div class="scard-title" data-i18n="settings.diagnose">重新检测环境</div>
+                    <div class="scard-desc" data-i18n="settings.diagnoseDesc">CLI 是否安装、是否已登录</div>
                   </div>
-                  <button type="button" class="btn" id="btn-run-diagnose">检测</button>
+                  <button type="button" class="btn" id="btn-run-diagnose">Diagnose</button>
                 </div>
               </div>
-              <div class="scard" style="margin-top:12px">
+              <div class="scard">
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">额度 / 账单</div>
-                    <div class="scard-desc">执行真实 /usage，查看额度与用量</div>
+                    <div class="scard-title" data-i18n="settings.usage">额度 / 账单</div>
+                    <div class="scard-desc" data-i18n="settings.usageDesc">执行真实 /usage，查看额度与用量</div>
                   </div>
-                  <button type="button" class="btn" id="btn-run-usage">查看额度</button>
+                  <button type="button" class="btn" id="btn-run-usage">/usage</button>
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">上下文用量</div>
-                    <div class="scard-desc">执行 /context，查看窗口占用与统计</div>
+                    <div class="scard-title" data-i18n="settings.context">上下文用量</div>
+                    <div class="scard-desc" data-i18n="settings.contextDesc">执行 /context，查看窗口占用与统计</div>
                   </div>
-                  <button type="button" class="btn" id="btn-run-context">查看上下文</button>
+                  <button type="button" class="btn" id="btn-run-context">/context</button>
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">压缩上下文</div>
-                    <div class="scard-desc">执行 /compact，压缩历史以节省上下文</div>
+                    <div class="scard-title" data-i18n="settings.compact">压缩上下文</div>
+                    <div class="scard-desc" data-i18n="settings.compactDesc">执行 /compact，压缩历史以节省上下文</div>
                   </div>
-                  <button type="button" class="btn" id="btn-run-compact">立即压缩</button>
+                  <button type="button" class="btn" id="btn-run-compact">/compact</button>
                 </div>
                 <div class="scard-row">
                   <div>
-                    <div class="scard-title">会话信息</div>
-                    <div class="scard-desc">执行 /session-info（模型、轮次等）</div>
+                    <div class="scard-title" data-i18n="settings.sessionInfo">会话信息</div>
+                    <div class="scard-desc" data-i18n="settings.sessionInfoDesc">执行 /session-info（模型、轮次等）</div>
                   </div>
-                  <button type="button" class="btn" id="btn-run-session-info">查看</button>
+                  <button type="button" class="btn" id="btn-run-session-info">/session-info</button>
                 </div>
               </div>
             </div>
 
             <div class="settings-footer">
               <p class="hint" id="settings-msg"></p>
-              <button type="button" id="btn-settings-save" class="btn primary">保存更改</button>
+              <button type="button" id="btn-settings-save" class="btn primary" data-i18n="settings.save">保存更改</button>
             </div>
           </section>
         </div>
@@ -522,14 +558,14 @@
     <!-- 首次启动 / 环境引导 -->
     <div id="setup-overlay" class="setup-overlay hidden" role="dialog" aria-modal="true" aria-label="环境检测">
       <div class="setup-card">
-        <h2>欢迎使用 Grok 桌面版</h2>
-        <p class="setup-lead">使用前请确认本机官方 CLI 与登录状态</p>
+        <h2 data-i18n="setup.title">欢迎使用 Grok 桌面版</h2>
+        <p class="setup-lead" data-i18n="setup.lead">使用前请确认本机官方 CLI 与登录状态</p>
         <ul id="setup-checks" class="setup-checks"></ul>
         <p id="setup-hint" class="setup-hint"></p>
         <div class="setup-actions">
-          <button type="button" class="btn" id="setup-recheck">重新检测</button>
-          <button type="button" class="btn" id="setup-open-cli-doc">CLI 安装说明</button>
-          <button type="button" class="btn primary" id="setup-continue">进入应用</button>
+          <button type="button" class="btn" id="setup-recheck" data-i18n="setup.recheck">重新检测</button>
+          <button type="button" class="btn" id="setup-open-cli-doc" data-i18n="setup.cliDoc">CLI 安装说明</button>
+          <button type="button" class="btn primary" id="setup-continue" data-i18n="setup.continue">进入应用</button>
         </div>
       </div>
     </div>
@@ -537,8 +573,8 @@
     <!-- 更新提示条 -->
     <div id="update-banner" class="update-banner hidden" role="status">
       <span id="update-banner-text">发现新版本</span>
-      <button type="button" class="btn primary" id="update-banner-open">查看</button>
-      <button type="button" class="btn ghost" id="update-banner-dismiss">关闭</button>
+      <button type="button" class="btn primary" id="update-banner-open" data-i18n="update.view">查看</button>
+      <button type="button" class="btn ghost" id="update-banner-dismiss" data-i18n="update.dismiss">关闭</button>
     </div>
 
     <!-- App modal (Electron has no window.prompt) -->
@@ -563,6 +599,7 @@
       <button type="button" class="ctx-item danger" data-act="delete" role="menuitem">删除</button>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

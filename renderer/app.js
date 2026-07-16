@@ -205,7 +205,95 @@ let desktopSettings = {
   notifyOnDone: true,
   checkUpdates: true,
   setupDismissed: false,
+  locale: "zh",
+  accessMode: "full",
 };
+
+/** @returns {"safe"|"balanced"|"full"} */
+function normalizeAccessMode(mode) {
+  if (mode === "safe" || mode === "balanced" || mode === "full") return mode;
+  return "full";
+}
+
+/** Map product access mode → desktop autoApprove + grok permission_mode / yolo */
+function accessModeToSettings(mode, yolo = false) {
+  const m = normalizeAccessMode(mode);
+  if (m === "safe") {
+    return { accessMode: "safe", autoApprove: false, permissionMode: "ask", yolo: false };
+  }
+  if (m === "balanced") {
+    return { accessMode: "balanced", autoApprove: true, permissionMode: "default", yolo: false };
+  }
+  return {
+    accessMode: "full",
+    autoApprove: true,
+    permissionMode: "always-approve",
+    yolo: !!yolo,
+  };
+}
+
+function deriveAccessMode(desk = {}, grok = {}) {
+  if (desk.accessMode === "safe" || desk.accessMode === "balanced" || desk.accessMode === "full") {
+    return desk.accessMode;
+  }
+  if (desk.autoApprove === false || grok.permissionMode === "ask") return "safe";
+  if (grok.yolo || grok.permissionMode === "always-approve") return "full";
+  return "balanced";
+}
+
+function updateAccessChip() {
+  const el = $("strip-access");
+  if (!el) return;
+  const mode = normalizeAccessMode(desktopSettings.accessMode);
+  el.className = "access-chip mode-" + mode;
+  el.textContent = t("access.badge." + mode);
+  el.title = t("access." + mode + "Desc");
+}
+
+function setAccessModeUi(mode) {
+  const m = normalizeAccessMode(mode);
+  desktopSettings.accessMode = m;
+  document.querySelectorAll("#access-mode-cards .mode-card").forEach((card) => {
+    const on = card.getAttribute("data-mode") === m;
+    card.classList.toggle("active", on);
+    card.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  const yoloRow = $("yolo-row");
+  if (yoloRow) yoloRow.style.display = m === "full" ? "" : "none";
+  // legacy hidden fields
+  const mapped = accessModeToSettings(m, !!$("set-yolo")?.checked);
+  if ($("set-permission")) $("set-permission").value = mapped.permissionMode;
+  if ($("set-auto-approve")) {
+    // checkbox may have been replaced by hidden input
+    const el = $("set-auto-approve");
+    if (el.type === "checkbox") el.checked = mapped.autoApprove;
+    else el.value = mapped.autoApprove ? "1" : "0";
+  }
+  updateAccessChip();
+}
+
+function applyLocale(loc, { persist } = {}) {
+  const next = loc === "en" ? "en" : "zh";
+  if (window.GrokI18n) GrokI18n.setLocale(next);
+  desktopSettings.locale = next;
+  if (window.GrokI18n) GrokI18n.applyI18n(document);
+  // re-render dynamic bits that aren't data-i18n
+  updateAccessChip();
+  if (activeId) {
+    const st = sessionUi.get(activeId);
+    renderPlan(st?.plan || null);
+  } else {
+    // welcome titles if present
+    if (ui.title && !activeId) {
+      ui.title.textContent = t("chat.welcomeTitle");
+      if (ui.sub) ui.sub.textContent = t("chat.welcomeSub");
+    }
+  }
+  setAccessModeUi(desktopSettings.accessMode);
+  if (persist) {
+    void grokDesktop.saveDesktopSettings({ locale: next }).catch(() => {});
+  }
+}
 /** 刚跑完、尚未点开的会话（左侧绿点） */
 /** @type {Set<string>} */
 const doneSessions = new Set();
@@ -303,29 +391,55 @@ function shortPath(p) {
 function localizeStatus(state, detail) {
   const st = String(state || "idle").toLowerCase();
   const d = detail == null || detail === "" ? "" : String(detail);
-  const stateZh = {
-    idle: "就绪",
-    ready: "就绪",
-    working: "思考中…",
-    connecting: "连接中…",
-    error: "出错",
-    disconnected: "已断开",
-  };
-  // 纯英文状态词
-  const detailZh = {
-    ready: "就绪",
-    idle: "就绪",
-    working: "思考中…",
-    connecting: "连接中…",
-    connected: "已连接",
-    disconnected: "已断开",
-    error: "出错",
-    "agent 已关闭": "agent 已关闭",
-  };
-  if (!d) return stateZh[st] || "就绪";
+  const en = typeof GrokI18n !== "undefined" && GrokI18n.getLocale() === "en";
+  const stateMap = en
+    ? {
+        idle: "Ready",
+        ready: "Ready",
+        working: "Working…",
+        connecting: "Connecting…",
+        error: "Error",
+        disconnected: "Disconnected",
+      }
+    : {
+        idle: "就绪",
+        ready: "就绪",
+        working: "思考中…",
+        connecting: "连接中…",
+        error: "出错",
+        disconnected: "已断开",
+      };
+  const detailMap = en
+    ? {
+        ready: "Ready",
+        idle: "Ready",
+        working: "Working…",
+        connecting: "Connecting…",
+        connected: "Connected",
+        disconnected: "Disconnected",
+        error: "Error",
+        就绪: "Ready",
+        已完成: "Done",
+        思考中: "Working…",
+        "思考中…": "Working…",
+        "连接中…": "Connecting…",
+        已连接: "Connected",
+        已停止: "Stopped",
+      }
+    : {
+        ready: "就绪",
+        idle: "就绪",
+        working: "思考中…",
+        connecting: "连接中…",
+        connected: "已连接",
+        disconnected: "已断开",
+        error: "出错",
+        "agent 已关闭": "agent 已关闭",
+      };
+  if (!d) return stateMap[st] || stateMap.idle;
   const low = d.toLowerCase().trim();
-  if (detailZh[low]) return detailZh[low];
-  if (detailZh[d]) return detailZh[d];
+  if (detailMap[low]) return detailMap[low];
+  if (detailMap[d]) return detailMap[d];
   // 常见英文片段
   if (/^ready$/i.test(d)) return "就绪";
   if (/connecting|连接 agent/i.test(d) && /…|\.\.\./.test(d)) return d.replace(/连接 agent/i, "连接助手");
@@ -1446,17 +1560,52 @@ function statusLabelZh(map, raw) {
 function renderPlan(planData) {
   if (!ui.planList) return;
   const entries = normalizePlanEntries(planData);
+  const badge = $("plan-badge");
+  const progress = $("plan-progress");
+  const stripBtn = $("btn-plan-toggle-strip");
+
+  // Plan toggle lives in topbar (session-actions) — always available when session open.
+  // Do NOT hide the button when empty; empty state is shown inside the panel.
+  ui.planToggle?.classList.remove("hidden");
+  if (stripBtn) {
+    if (entries.length) stripBtn.classList.remove("hidden");
+    else stripBtn.classList.add("hidden");
+  }
+
   if (!entries.length) {
-    ui.planList.innerHTML =
-      '<div class="plan-empty">尚无计划条目。助手进入计划模式后会出现在这里。</div>';
-    ui.planToggle?.classList.add("hidden");
+    ui.planList.innerHTML = `<div class="plan-empty">${t("chat.planEmpty")}</div>`;
     ui.planDot?.classList.add("hidden");
     ui.planToggle?.classList.remove("has-plan");
+    stripBtn?.classList.remove("has-plan");
+    if (badge) {
+      badge.classList.add("hidden");
+      badge.classList.remove("done");
+      badge.textContent = "0";
+    }
+    if (progress) {
+      progress.classList.add("hidden");
+      progress.textContent = "";
+    }
     return;
   }
-  ui.planToggle?.classList.remove("hidden");
+
   ui.planDot?.classList.remove("hidden");
   ui.planToggle?.classList.add("has-plan");
+  stripBtn?.classList.add("has-plan");
+
+  const done = entries.filter((e) =>
+    /completed|done|success/i.test(String(e.status || "")),
+  ).length;
+  if (badge) {
+    badge.textContent = String(entries.length);
+    badge.classList.remove("hidden");
+    badge.classList.toggle("done", done === entries.length && entries.length > 0);
+  }
+  if (progress) {
+    progress.textContent = `${done}/${entries.length}`;
+    progress.classList.remove("hidden");
+  }
+
   ui.planList.replaceChildren();
   for (const e of entries) {
     const row = document.createElement("div");
@@ -1474,6 +1623,8 @@ function renderPlan(planData) {
 function setPlanOpen(on) {
   planOpen = !!on;
   ui.planPanel?.classList.toggle("hidden", !planOpen);
+  ui.planToggle?.classList.toggle("active", planOpen);
+  $("btn-plan-toggle-strip")?.classList.toggle("active", planOpen);
 }
 
 function isEventForActive(payload) {
@@ -1486,7 +1637,7 @@ function appendPermissionCard(req) {
   ui.inner.querySelector(".welcome")?.remove();
   const card = document.createElement("div");
   card.className = "perm-card";
-  const title = req.toolCall?.title || req.toolCall?.kind || "工具权限";
+  const title = req.toolCall?.title || req.toolCall?.kind || t("perm.toolDefault");
   const raw = req.toolCall?.rawInput || req.toolCall?.input;
   let detail = "";
   try {
@@ -1495,10 +1646,11 @@ function appendPermissionCard(req) {
     detail = String(raw || "");
   }
   card.innerHTML = `
-    <h4>需要批准：</h4>
+    <h4></h4>
     <p></p>
     <pre class="perm-detail"></pre>
     <div class="perm-actions"></div>`;
+  card.querySelector("h4").textContent = t("perm.needApprove");
   card.querySelector("p").textContent = title;
   const pre = card.querySelector("pre");
   if (detail) pre.textContent = detail.slice(0, 4000);
@@ -1507,8 +1659,8 @@ function appendPermissionCard(req) {
   const options = req.options?.length
     ? req.options
     : [
-        { optionId: "allow_once", name: "允许一次" },
-        { optionId: "reject_once", name: "拒绝" },
+        { optionId: "allow_once", name: t("perm.allowOnce") },
+        { optionId: "reject_once", name: t("perm.reject") },
       ];
   for (const opt of options) {
     const btn = document.createElement("button");
@@ -1520,14 +1672,14 @@ function appendPermissionCard(req) {
     btn.onclick = async () => {
       actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
       try {
-        await grokDesktop.respondPermission(req.id, oid);
+        await grokDesktop.respondPermission(req.id, oid, req.sessionId);
         card.style.opacity = "0.55";
         const tag = document.createElement("div");
         tag.style.cssText = "font-size:11px;color:var(--muted);margin-top:6px";
-        tag.textContent = `已选择：${opt.name || oid}`;
+        tag.textContent = `${t("perm.selected")}${opt.name || oid}`;
         card.appendChild(tag);
       } catch (err) {
-        appendBanner(`权限响应失败：${err.message}`, "error");
+        appendBanner(`${t("perm.fail")}${err.message}`, "error");
       }
     };
     actions.appendChild(btn);
@@ -2142,18 +2294,33 @@ function showWelcome() {
   welcomePane.className = "thread-inner";
   welcomePane.innerHTML = `
     <div class="welcome">
-      <h2>开始构建</h2>
-      <p>Grok Desktop 是 Grok Build 的独立窗口。支持多会话并行、文件 diff 预览、全文搜索与计划面板。</p>
+      <h2></h2>
+      <p></p>
       <ol class="welcome-steps">
-        <li><span class="n">1</span><div><strong>选一个最近会话</strong><span>左侧按项目分组，点一下即可恢复；可同时开多个标签并行跑</span></div></li>
-        <li><span class="n">2</span><div><strong>或开新对话</strong><span>选择工作目录后开始；写文件时显示 diff 卡片</span></div></li>
-        <li><span class="n">3</span><div><strong>全文搜索 / 计划</strong><span>左侧搜索支持聊天内容；Plan 模式会打开右侧计划面板</span></div></li>
+        <li><span class="n">1</span><div><strong></strong><span></span></div></li>
+        <li><span class="n">2</span><div><strong></strong><span></span></div></li>
+        <li><span class="n">3</span><div><strong></strong><span></span></div></li>
       </ol>
       <div class="welcome-cta">
-        <button type="button" class="btn primary" id="welcome-new">＋ 新对话</button>
-        <button type="button" class="btn" id="welcome-memory">查看记忆</button>
+        <button type="button" class="btn primary" id="welcome-new"></button>
+        <button type="button" class="btn" id="welcome-memory"></button>
       </div>
     </div>`;
+  const root = welcomePane.querySelector(".welcome");
+  root.querySelector("h2").textContent = t("welcome.h2");
+  root.querySelector("p").textContent = t("welcome.p");
+  const steps = root.querySelectorAll(".welcome-steps li");
+  const stepKeys = [
+    ["welcome.s1t", "welcome.s1d"],
+    ["welcome.s2t", "welcome.s2d"],
+    ["welcome.s3t", "welcome.s3d"],
+  ];
+  steps.forEach((li, i) => {
+    li.querySelector("strong").textContent = t(stepKeys[i][0]);
+    li.querySelector("span:not(.n)").textContent = t(stepKeys[i][1]);
+  });
+  welcomePane.querySelector("#welcome-new").textContent = t("welcome.new");
+  welcomePane.querySelector("#welcome-memory").textContent = t("welcome.memory");
   while (ui.thread.firstChild) ui.thread.removeChild(ui.thread.firstChild);
   ui.thread.appendChild(welcomePane);
   ui.inner = welcomePane;
@@ -2165,8 +2332,8 @@ function showWelcome() {
   setComposerEnabled(false);
   setPlanOpen(false);
   renderPlan(null);
-  ui.title.textContent = "欢迎使用 Grok Desktop";
-  ui.sub.textContent = "选择左侧会话继续，或开始新对话";
+  ui.title.textContent = t("chat.welcomeTitle");
+  ui.sub.textContent = t("chat.welcomeSub");
   ui.cwdChip.textContent = "未选择工作目录";
   renderTabs();
   schedulePersistTabs();
@@ -3252,8 +3419,8 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
         st.meta?.title ||
         sentTo.slice(0, 8);
       void grokDesktop.notify?.({
-        title: "会话已完成",
-        body: `「${title}」已结束，可在左侧查看`,
+        title: t("notify.doneTitle"),
+        body: t("notify.doneBody", { title }),
       });
     }
     st.streamingEl = null;
@@ -3461,8 +3628,8 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
               sessionUi.get(sid)?.meta?.title ||
               sid.slice(0, 8);
             void grokDesktop.notify?.({
-              title: "会话已完成",
-              body: `「${title}」已结束，可在左侧查看`,
+              title: t("notify.doneTitle"),
+              body: t("notify.doneBody", { title }),
             });
           }
         }
@@ -3507,7 +3674,20 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
 
 // Plan panel toggles
 ui.planToggle?.addEventListener("click", () => setPlanOpen(!planOpen));
+$("btn-plan-toggle-strip")?.addEventListener("click", () => setPlanOpen(!planOpen));
 ui.planClose?.addEventListener("click", () => setPlanOpen(false));
+
+// Access mode cards
+document.querySelectorAll("#access-mode-cards .mode-card").forEach((card) => {
+  card.addEventListener("click", () => {
+    setAccessModeUi(card.getAttribute("data-mode"));
+  });
+});
+
+// Live language switch
+$("set-locale")?.addEventListener("change", () => {
+  applyLocale($("set-locale").value, { persist: true });
+});
 
 // ── Memory ─────────────────────────────────────────────
 
@@ -3842,7 +4022,7 @@ async function loadSettings() {
   const msg = $("settings-msg");
   try {
     const s = await grokDesktop.getSettings();
-    desktopSettings = s.desktop || desktopSettings;
+    desktopSettings = { ...desktopSettings, ...(s.desktop || {}) };
     if ($("set-show-thinking")) $("set-show-thinking").checked = !!desktopSettings.showThinking;
     if ($("set-enter-send")) $("set-enter-send").checked = desktopSettings.enterToSend !== false;
     if ($("set-notify-done")) $("set-notify-done").checked = desktopSettings.notifyOnDone !== false;
@@ -3852,11 +4032,15 @@ async function loadSettings() {
     applyWallpaper();
 
     const grok = s.grok || {};
-    if ($("set-permission")) $("set-permission").value = grok.permissionMode || "always-approve";
+    const mode = deriveAccessMode(desktopSettings, grok);
+    desktopSettings.accessMode = mode;
     if ($("set-yolo")) $("set-yolo").checked = !!grok.yolo;
-    if ($("set-auto-approve")) {
-      $("set-auto-approve").checked = desktopSettings.autoApprove !== false;
-    }
+    setAccessModeUi(mode);
+
+    const loc = desktopSettings.locale === "en" ? "en" : "zh";
+    if ($("set-locale")) $("set-locale").value = loc;
+    applyLocale(loc);
+
     const info = await grokDesktop.appInfo();
     if ($("set-memory")) $("set-memory").checked = !!info.memoryEnabled;
     if ($("set-cli")) $("set-cli").textContent = info.grokCli || "—";
@@ -3872,13 +4056,13 @@ async function loadSettings() {
       if (!models.length) {
         const o = document.createElement("option");
         o.value = currentModelId || "";
-        o.textContent = currentModelId || "（打开会话后可切换）";
+        o.textContent = currentModelId || "—";
         sel.appendChild(o);
       } else {
         for (const m of models) {
           const o = document.createElement("option");
           o.value = m.id;
-          o.textContent = m.id + (m.isDefault ? " （默认）" : "");
+          o.textContent = m.id + (m.isDefault ? " ★" : "");
           sel.appendChild(o);
         }
         sel.value = grok.defaultModel || s.models?.defaultModel || models[0].id;
@@ -4095,16 +4279,25 @@ $("btn-settings-save")?.addEventListener("click", async () => {
   const msg = $("settings-msg");
   if (msg) {
     msg.classList.remove("error");
-    msg.textContent = "保存中…";
+    msg.textContent = t("settings.saving");
   }
   try {
+    const mode = normalizeAccessMode(
+      document.querySelector("#access-mode-cards .mode-card.active")?.getAttribute("data-mode") ||
+        desktopSettings.accessMode,
+    );
+    const mapped = accessModeToSettings(mode, !!$("set-yolo")?.checked);
+    const locale = $("set-locale")?.value === "en" ? "en" : "zh";
+
     desktopSettings = await grokDesktop.saveDesktopSettings({
       showThinking: !!$("set-show-thinking")?.checked,
       enterToSend: !!$("set-enter-send")?.checked,
       notifyOnDone: !!$("set-notify-done")?.checked,
       checkUpdates: !!$("set-check-updates")?.checked,
       density: $("set-density")?.value || "comfortable",
-      autoApprove: !!$("set-auto-approve")?.checked,
+      autoApprove: mapped.autoApprove,
+      accessMode: mapped.accessMode,
+      locale,
       wallpaper: desktopSettings.wallpaper || "none",
       wallpaperPath: desktopSettings.wallpaperPath || null,
       wallpaperDataUrl: desktopSettings.wallpaperDataUrl || null,
@@ -4113,21 +4306,23 @@ $("btn-settings-save")?.addEventListener("click", async () => {
     });
     applyDensity(desktopSettings.density);
     applyWallpaper();
+    applyLocale(locale);
+    setAccessModeUi(mapped.accessMode);
     try {
-      await grokDesktop.setAutoApprove(desktopSettings.autoApprove !== false);
+      await grokDesktop.setAutoApprove(mapped.autoApprove);
     } catch {
       /* ignore */
     }
     await grokDesktop.saveGrokSettings({
-      permissionMode: $("set-permission")?.value || "always-approve",
-      yolo: !!$("set-yolo")?.checked,
+      permissionMode: mapped.permissionMode,
+      yolo: mapped.yolo,
       defaultModel: $("set-model")?.value || undefined,
     });
     if ($("set-memory")) {
       await grokDesktop.setMemoryEnabled($("set-memory").checked);
       if (ui.memoryEnabled) ui.memoryEnabled.checked = $("set-memory").checked;
     }
-    if (msg) msg.textContent = "已保存";
+    if (msg) msg.textContent = t("settings.saved");
   } catch (err) {
     if (msg) {
       msg.textContent = err.message || String(err);
@@ -4575,6 +4770,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     newSession();
   }
+  // P — toggle plan panel when a session is open
+  if ((e.key === "p" || e.key === "P") && activeId && view === "chat") {
+    e.preventDefault();
+    setPlanOpen(!planOpen);
+  }
 });
 
 // ── 环境诊断 / 首次引导 / 更新 ─────────────────────────
@@ -4669,21 +4869,25 @@ async function checkForUpdates(manual = false) {
   const text = $("update-banner-text");
   if (!manual && desktopSettings.checkUpdates === false) return;
   try {
-    if (desc && manual) desc.textContent = "检查中…";
+    if (desc && manual) desc.textContent = t("update.checking");
     const r = await grokDesktop.checkUpdate();
     if (!r?.ok) {
-      if (desc) desc.textContent = manual ? `检查失败：${r?.error || "网络错误"}` : desc.textContent;
+      if (desc)
+        desc.textContent = manual
+          ? t("update.fail", { error: r?.error || "network" })
+          : desc.textContent;
       return;
     }
     if (r.hasUpdate) {
-      if (desc) desc.textContent = `有新版本 ${r.latest}（当前 ${r.current}）`;
+      const msg = t("update.found", { latest: r.latest, current: r.current });
+      if (desc) desc.textContent = msg;
       if (banner && text) {
-        text.textContent = `发现新版本 ${r.latest}（当前 ${r.current}）`;
+        text.textContent = msg;
         banner.dataset.url = r.url || "";
         banner.classList.remove("hidden");
       }
     } else if (manual && desc) {
-      desc.textContent = `已是最新（${r.current}）`;
+      desc.textContent = t("update.latest", { current: r.current });
     }
   } catch (err) {
     if (manual && desc) desc.textContent = err.message || String(err);
@@ -4721,22 +4925,27 @@ $("update-banner-dismiss")?.addEventListener("click", () => {
 (async function boot() {
   try {
     const info = await grokDesktop.appInfo();
-    ui.cliInfo.textContent = `${info.grokCli || "grok"} · v${info.desktopVersion || "0.7"}`;
+    ui.cliInfo.textContent = `${info.grokCli || "grok"} · v${info.desktopVersion || "0.8"}`;
     ui.cliInfo.title = `CLI: ${info.grokCli}\nHome: ${info.grokHome}`;
   } catch {
-    ui.cliInfo.textContent = "未检测到 grok CLI";
+    ui.cliInfo.textContent = "CLI not found";
   }
   try {
     const s = await grokDesktop.getSettings();
     desktopSettings = { ...desktopSettings, ...(s.desktop || {}) };
+    const grok = s.grok || {};
+    desktopSettings.accessMode = deriveAccessMode(desktopSettings, grok);
     applyDensity(desktopSettings.density);
     applyWallpaper();
+    applyLocale(desktopSettings.locale === "en" ? "en" : desktopSettings.locale || GrokI18n?.detectLocale?.() || "zh");
+    setAccessModeUi(desktopSettings.accessMode);
   } catch {
-    /* ignore */
+    if (window.GrokI18n) GrokI18n.applyI18n(document);
   }
   wireWallpaperUi();
   await loadWallpaperAssets();
   applyWallpaper();
+  updateAccessChip();
 
   // 首次 / 环境异常 → 引导
   await showSetupIfNeeded(false);

@@ -1,7 +1,7 @@
 {
   "name": "linux-grok-desktop",
-  "version": "0.7.0",
-  "description": "Grok Build 独立桌面端 — 会话列表、多会话并行、中文界面",
+  "version": "0.8.0",
+  "description": "Grok Build Linux desktop shell — multi-session, plan panel, i18n (zh/en), product-ready permissions",
   "main": "main.js",
   "author": {
     "name": "xiaokaige1130-maker",
@@ -67,8 +67,8 @@
       "icon": "assets/icon.png",
       "executableName": "grok-desktop",
       "syncDesktopName": true,
-      "synopsis": "Grok Build 独立桌面端",
-      "description": "Linux 上的 Grok Build 桌面壳：多会话并行、中文界面、对接官方 grok CLI（ACP）。",
+      "synopsis": "Grok Build desktop for Linux",
+      "description": "Standalone Grok Build desktop shell: multi-session, plan panel, zh/en UI, official grok CLI (ACP).",
       "desktop": {
         "entry": {
           "Name": "Grok Desktop",

@@ -1091,7 +1091,7 @@ ipcMain.handle("models:set", async (_e, modelId, sessionId) => {
   return { ok: true, modelId: mid, result: res };
 });
 
-const DESKTOP_VERSION = "0.7.0";
+const DESKTOP_VERSION = "0.8.0";
 
 ipcMain.handle("app:info", async () => ({
   grokHome: grokHome(),
