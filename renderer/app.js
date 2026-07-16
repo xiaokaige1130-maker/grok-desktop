@@ -4477,8 +4477,6 @@ $("session-ctx")?.addEventListener("click", async (e) => {
     void selectSession(id);
   } else if (act === "rename") {
     await renameSessionUi(id, s?.title || "");
-  } else if (act === "smart-title") {
-    await smartTitleSession(id);
   } else if (act === "delete") {
     const ok = await askConfirm({
       title: "删除会话",
@@ -4506,9 +4504,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") hideSessionCtx();
 });
 
-$("btn-smart-title")?.addEventListener("click", () => {
-  if (activeId) void smartTitleSession(activeId);
-});
 
 // keyboard shortcuts
 document.addEventListener("keydown", (e) => {
