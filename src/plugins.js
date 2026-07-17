@@ -1,24 +1,17 @@
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-
-function resolveGrokCli() {
-  if (process.env.GROK_CLI) return process.env.GROK_CLI;
-  const candidates = [
-    path.join(process.env.HOME || "", ".local/bin/grok"),
-    "/usr/local/bin/grok",
-    "/usr/bin/grok",
-  ];
-  for (const c of candidates) {
-    if (c && fs.existsSync(c)) return c;
-  }
-  return "grok";
-}
+const { commandExists, resolveGrokCli, spawnCli } = require("./platform");
 
 function runGrok(args, { timeoutMs = 120_000 } = {}) {
   return new Promise((resolve, reject) => {
     const cli = resolveGrokCli();
-    const child = spawn(cli, args, {
+    if (!commandExists(cli)) {
+      reject(
+        new Error(
+          `未找到 Grok CLI：${cli}。请先安装并登录官方 Grok CLI，或设置 GROK_CLI 为完整路径。`,
+        ),
+      );
+      return;
+    }
+    const child = spawnCli(cli, args, {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });

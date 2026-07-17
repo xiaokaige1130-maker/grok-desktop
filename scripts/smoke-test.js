@@ -3,11 +3,11 @@
  * Headless regression: sessions list survives find + history + ACP load.
  * Does not launch Electron UI; verifies core modules.
  */
-const path = require("path");
 const assert = require("assert");
 
 const { listSessions, loadHistoryPreview, findSession } = require("../src/sessions");
 const { AcpClient } = require("../src/acp");
+const { defaultCwd, resolveGrokCli } = require("../src/platform");
 
 async function main() {
   const list1 = listSessions({ limit: 50 });
@@ -31,8 +31,8 @@ async function main() {
   assert.ok(list2.length > 0, "list must still work after history read");
   assert.ok(list2.some((s) => s.id === target.id), "target still in list");
 
-  const cli = process.env.GROK_CLI || path.join(process.env.HOME, ".local/bin/grok");
-  const cwd = found.cwd && require("fs").existsSync(found.cwd) ? found.cwd : process.env.HOME;
+  const cli = resolveGrokCli();
+  const cwd = found.cwd && require("fs").existsSync(found.cwd) ? found.cwd : defaultCwd();
   const client = new AcpClient({
     cliPath: cli,
     cwd,

@@ -1,9 +1,9 @@
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
+const { defaultCwd, homeDir } = require("./platform");
 
 function grokHome() {
-  return process.env.GROK_HOME || path.join(os.homedir(), ".grok");
+  return process.env.GROK_HOME || path.join(homeDir(), ".grok");
 }
 
 function sessionsRoot() {
@@ -202,7 +202,7 @@ function findSession(sessionId) {
 /** Ensure a session appears in the sidebar immediately after create. */
 function ensureSessionSummary({ id, cwd, title }) {
   if (!id) throw new Error("missing session id");
-  const workDir = cwd || process.env.HOME || process.cwd();
+  const workDir = cwd || defaultCwd();
   const group = encodeURIComponent(workDir);
   const dir = path.join(sessionsRoot(), group, id);
   fs.mkdirSync(dir, { recursive: true });

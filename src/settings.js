@@ -1,15 +1,10 @@
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const { grokHome } = require("./sessions");
-const { spawn } = require("child_process");
+const { appConfigDir, spawnCli } = require("./platform");
 const { resolveGrokCli } = require("./plugins");
 
-const DESKTOP_SETTINGS = path.join(
-  process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-  "linux-grok-desktop",
-  "settings.json",
-);
+const DESKTOP_SETTINGS = path.join(appConfigDir(), "settings.json");
 
 const DEFAULT_DESKTOP = {
   showThinking: true,
@@ -161,7 +156,10 @@ function updateGrokConfig(patch = {}) {
 function listModels() {
   return new Promise((resolve) => {
     const cli = resolveGrokCli();
-    const child = spawn(cli, ["models"], { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnCli(cli, ["models"], {
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let out = "";
     child.stdout.on("data", (d) => {
       out += d.toString();

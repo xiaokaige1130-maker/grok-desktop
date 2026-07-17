@@ -1,7 +1,7 @@
 {
   "name": "linux-grok-desktop",
   "version": "0.8.0",
-  "description": "Grok Build Linux desktop shell — multi-session, plan panel, i18n (zh/en), product-ready permissions",
+  "description": "Cross-platform Grok Build desktop shell for Windows and Linux",
   "main": "main.js",
   "author": {
     "name": "xiaokaige1130-maker",
@@ -14,9 +14,14 @@
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "smoke": "node scripts/smoke-test.js",
+    "check:win": "node scripts/windows-check.js",
+    "check:win:packaged": "node scripts/packaged-windows-check.js",
     "dist": "electron-builder --linux",
     "dist:appimage": "electron-builder --linux AppImage",
-    "dist:deb": "electron-builder --linux deb"
+    "dist:deb": "electron-builder --linux deb",
+    "dist:win": "electron-builder --win nsis portable --x64",
+    "dist:win:setup": "electron-builder --win nsis --x64",
+    "dist:win:portable": "electron-builder --win portable --x64"
   },
   "engines": {
     "node": ">=18"
@@ -79,6 +84,36 @@
           "StartupWMClass": "grok-desktop"
         }
       }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "executableName": "Grok Desktop"
+    },
+    "nsis": {
+      "artifactName": "Grok-Desktop-${version}-Windows-Setup-x64.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Grok Desktop"
+    },
+    "portable": {
+      "artifactName": "Grok-Desktop-${version}-Windows-Portable-x64.exe"
     },
     "deb": {
       "packageCategory": "devel",
