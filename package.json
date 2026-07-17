@@ -1,5 +1,5 @@
 {
-  "name": "linux-grok-desktop",
+  "name": "grok-desktop",
   "version": "0.8.0",
   "description": "Cross-platform Grok Build desktop shell for Windows and Linux",
   "main": "main.js",
@@ -7,7 +7,7 @@
     "name": "xiaokaige1130-maker",
     "email": "xiaokaige1130@gmail.com"
   },
-  "homepage": "https://github.com/xiaokaige1130-maker/linux-grok-desktop",
+  "homepage": "https://github.com/xiaokaige1130-maker/grok-desktop",
   "desktopName": "grok-desktop.desktop",
   "private": true,
   "scripts": {

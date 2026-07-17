@@ -4913,7 +4913,7 @@ $("btn-run-diagnose")?.addEventListener("click", async () => {
 $("update-banner-open")?.addEventListener("click", () => {
   const url =
     $("update-banner")?.dataset?.url ||
-    "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases";
+    "https://github.com/xiaokaige1130-maker/grok-desktop/releases";
   void grokDesktop.openExternal?.(url);
 });
 $("update-banner-dismiss")?.addEventListener("click", () => {
