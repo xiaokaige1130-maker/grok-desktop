@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
 const os = require("os");
 const {
   listSessions,
@@ -20,6 +19,7 @@ const skills = require("./src/skills");
 const settings = require("./src/settings");
 const memory = require("./src/memory");
 const mcp = require("./src/mcp");
+const { commandExists, defaultCwd, spawnCli } = require("./src/platform");
 
 let mainWindow = null;
 /** @type {Map<string, { client: import('./src/acp').AcpClient, meta: object|null, cwd: string, lastUsed: number }>} */
@@ -315,8 +315,14 @@ async function createClient(cwd) {
   const env = { ...process.env };
   if (memory.isEnabledInConfig()) env.GROK_MEMORY = "1";
   const desk = settings.readDesktopSettings();
+  const cliPath = resolveGrokCli();
+  if (!commandExists(cliPath)) {
+    throw new Error(
+      `未找到 Grok CLI：${cliPath}。请先安装并登录官方 Grok CLI，或设置 GROK_CLI 为完整路径。`,
+    );
+  }
   const client = new AcpClient({
-    cliPath: resolveGrokCli(),
+    cliPath,
     cwd,
     env,
     log,
@@ -414,8 +420,7 @@ ipcMain.handle("sessions:delete", async (_e, { sessionId }) => {
   // prefer CLI delete, fallback to dir rm
   try {
     await new Promise((resolve, reject) => {
-      const { spawn } = require("child_process");
-      const child = spawn(resolveGrokCli(), ["sessions", "delete", sessionId], {
+      const child = spawnCli(resolveGrokCli(), ["sessions", "delete", sessionId], {
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -537,7 +542,7 @@ ipcMain.handle("session:open", async (_e, { sessionId, soft } = {}) => {
     s = findSession(sessionId);
   }
   if (!s) throw new Error("磁盘上找不到该会话（可点刷新后再试）");
-  const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : process.env.HOME || process.cwd();
+  const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : defaultCwd();
   log(`open session ${sessionId} cwd=${cwd} soft=${!!soft}`);
   activeSessionId = sessionId;
   activeSessionMeta = s;
@@ -649,7 +654,7 @@ ipcMain.handle("session:open", async (_e, { sessionId, soft } = {}) => {
 });
 
 ipcMain.handle("session:new", async (_e, { cwd } = {}) => {
-  const workDir = cwd && fs.existsSync(cwd) ? cwd : process.env.HOME || process.cwd();
+  const workDir = cwd && fs.existsSync(cwd) ? cwd : defaultCwd();
   log(`new session cwd=${workDir}`);
   send("session:status", { state: "connecting", detail: "创建会话…" });
   try {
@@ -956,8 +961,7 @@ ipcMain.handle("session:export", async (_e, { sessionId } = {}) => {
   });
   if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
   await new Promise((resolve, reject) => {
-    const { spawn } = require("child_process");
-    const child = spawn(resolveGrokCli(), ["export", id, result.filePath], {
+    const child = spawnCli(resolveGrokCli(), ["export", id, result.filePath], {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -1091,7 +1095,7 @@ ipcMain.handle("models:set", async (_e, modelId, sessionId) => {
   return { ok: true, modelId: mid, result: res };
 });
 
-const DESKTOP_VERSION = "0.8.0";
+const DESKTOP_VERSION = require("./package.json").version;
 
 ipcMain.handle("app:info", async () => ({
   grokHome: grokHome(),
@@ -1105,7 +1109,7 @@ ipcMain.handle("app:info", async () => ({
 /** 环境诊断：CLI 是否存在、是否像已登录 */
 ipcMain.handle("app:diagnose", async () => {
   const cli = resolveGrokCli();
-  const cliExists = !!(cli && fs.existsSync(cli));
+  const cliExists = commandExists(cli);
   const home = grokHome();
   const authPath = path.join(home, "auth.json");
   let loggedIn = false;
@@ -1125,7 +1129,7 @@ ipcMain.handle("app:diagnose", async () => {
   if (cliExists) {
     try {
       cliVersion = await new Promise((resolve) => {
-        const child = spawn(cli, ["--version"], {
+        const child = spawnCli(cli, ["--version"], {
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });

@@ -1748,7 +1748,7 @@ function switchView(name) {
   closeModelPop();
   view = name;
 
-  // Codex-style: settings takes over full app chrome
+  // Desktop layout: settings takes over the full app chrome.
   document.getElementById("app")?.classList.toggle("settings-mode", name === "settings");
 
   document.querySelectorAll(".view").forEach((el) => {

@@ -1,8 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const { grokHome } = require("./sessions");
-const { spawn } = require("child_process");
 const { resolveGrokCli } = require("./plugins");
+const { commandExists, spawnCli } = require("./platform");
 
 function memoryRoot() {
   return path.join(grokHome(), "memory");
@@ -193,7 +193,16 @@ function clearMemory({ scope = "all" } = {}) {
   return new Promise((resolve, reject) => {
     const args = ["memory", "clear"];
     // CLI: clear workspace by default — use as best effort
-    const child = spawn(resolveGrokCli(), args, {
+    const cli = resolveGrokCli();
+    if (!commandExists(cli)) {
+      reject(
+        new Error(
+          `未找到 Grok CLI：${cli}。请先安装并登录官方 Grok CLI，或设置 GROK_CLI 为完整路径。`,
+        ),
+      );
+      return;
+    }
+    const child = spawnCli(cli, args, {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });

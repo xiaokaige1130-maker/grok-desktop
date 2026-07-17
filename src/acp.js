@@ -4,6 +4,8 @@ const { EventEmitter } = require("events");
 const fs = require("fs");
 const path = require("path");
 const { spawn: spawnShell } = require("child_process");
+const { fileURLToPath } = require("url");
+const { spawnCli } = require("./platform");
 
 function guessMime(p) {
   const ext = path.extname(p).toLowerCase();
@@ -67,7 +69,7 @@ class AcpClient extends EventEmitter {
     // memory is typically env GROK_MEMORY / config; flag if supported later
     args.push("stdio");
     this.log(`spawn ${this.cliPath} ${args.join(" ")} (cwd=${this.cwd}) mem=${this.experimentalMemory}`);
-    this.proc = spawn(this.cliPath, args, {
+    this.proc = spawnCli(this.cliPath, args, {
       cwd: this.cwd,
       env: this.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -105,7 +107,7 @@ class AcpClient extends EventEmitter {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
       },
-      clientInfo: { name: "linux-grok-desktop", version: "0.3.0" },
+      clientInfo: { name: "grok-desktop", version: "0.8.0" },
     });
     this.started = true;
     this.emit("initialized");
@@ -366,7 +368,13 @@ class AcpClient extends EventEmitter {
       }
       if (node.type === "resource" && node.uri) {
         const uri = String(node.uri);
-        if (uri.startsWith("file://")) emitPath(uri.slice(7));
+        if (uri.startsWith("file://")) {
+          try {
+            emitPath(fileURLToPath(uri));
+          } catch {
+            emitPath(uri.slice(7));
+          }
+        }
         else if (uri.startsWith("/")) emitPath(uri);
       }
       if (typeof node.path === "string" && /\.(png|jpe?g|gif|webp|svg)$/i.test(node.path)) {
@@ -375,6 +383,9 @@ class AcpClient extends EventEmitter {
       if (typeof node.text === "string") {
         const paths = node.text.match(/\/[^\s"'`]+\.(?:png|jpe?g|gif|webp)/gi) || [];
         for (const p of paths) emitPath(p);
+        const winPaths =
+          node.text.match(/[A-Za-z]:\\[^\r\n"'`<>|]+\.(?:png|jpe?g|gif|webp)/gi) || [];
+        for (const p of winPaths) emitPath(p);
       }
       for (const v of Object.values(node)) walk(v, depth + 1);
     };

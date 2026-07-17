@@ -122,7 +122,7 @@ body.compact { font-size: 12.5px; }
   width: 100%;
 }
 
-/* Codex-style settings: left categories + right content */
+/* Desktop settings: left categories + right content */
 .settings-shell {
   flex-direction: row !important;
   height: 100%;
