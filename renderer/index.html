@@ -491,6 +491,46 @@
             <div class="settings-panel" id="panel-about" data-panel="about">
               <h1 data-i18n="settings.about">环境</h1>
               <p class="settings-lead" data-i18n="settings.aboutLead">本机路径、CLI 与更新</p>
+
+              <!-- 开发者 / 赞助（你的 GitHub） -->
+              <div class="scard developer-card">
+                <div class="developer-hero">
+                  <div class="developer-avatar" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.05-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.33-1.76-1.33-1.76-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22 0 1.6-.01 2.89-.01 3.28 0 .32.22.7.83.58A12.01 12.01 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                  </div>
+                  <div class="developer-meta">
+                    <div class="developer-name">Grok Desktop</div>
+                    <a class="developer-handle" id="dev-github-profile" href="#" data-url="https://github.com/xiaokaige1130-maker">@xiaokaige1130-maker</a>
+                    <p class="developer-thanks" data-i18n="developer.thanks">
+                      本项目的成长离不开每一位用户的使用、反馈、贡献与支持，感谢一路有你。
+                    </p>
+                  </div>
+                </div>
+                <div class="developer-actions">
+                  <button type="button" class="btn ghost" id="btn-dev-feedback" data-url="https://github.com/xiaokaige1130-maker/grok-desktop/issues">
+                    <span class="dev-btn-ico" aria-hidden="true">💬</span>
+                    <span data-i18n="developer.feedback">反馈问题</span>
+                  </button>
+                  <!-- 赞助：GitHub Sponsors 开通后再显示；先空着 -->
+                  <button type="button" class="btn primary hidden" id="btn-dev-sponsor" data-url="https://github.com/sponsors/xiaokaige1130-maker" aria-hidden="true">
+                    <span class="dev-btn-ico" aria-hidden="true">♥</span>
+                    <span data-i18n="developer.sponsor">赞助作者</span>
+                  </button>
+                </div>
+                <div class="developer-links">
+                  <button type="button" class="dev-link" id="btn-dev-repo" data-url="https://github.com/xiaokaige1130-maker/grok-desktop">
+                    <span data-i18n="developer.repo">项目仓库</span>
+                    <code>xiaokaige1130-maker/grok-desktop</code>
+                  </button>
+                  <button type="button" class="dev-link" id="btn-dev-releases" data-url="https://github.com/xiaokaige1130-maker/grok-desktop/releases">
+                    <span data-i18n="developer.releases">版本发布</span>
+                    <code>Releases</code>
+                  </button>
+                </div>
+              </div>
+
               <div class="scard about-card">
                 <div class="path-row"><span>Desktop</span><code id="set-desktop-ver">—</code></div>
                 <div class="path-row"><span>GROK_HOME</span><code id="set-grok-home">—</code></div>

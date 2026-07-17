@@ -905,10 +905,12 @@ function highlightSearchInThread(query) {
 function clearSearchHighlight() {
   if (!ui.inner) return;
   ui.inner.querySelectorAll(".turn.search-hl-turn").forEach((el) => el.classList.remove("search-hl-turn"));
-  // restore plain text for marked bodies
+  // restore plain text for marked bodies, then re-linkify URLs
   ui.inner.querySelectorAll(".turn .body").forEach((body) => {
     if (!body.querySelector("mark.search-hl-mark")) return;
-    body.textContent = body.textContent;
+    const t = body.textContent || "";
+    if (/https?:\/\//i.test(t)) setMessageBody(body, t);
+    else body.textContent = t;
   });
 }
 
@@ -1206,11 +1208,13 @@ function endStreamChrome(sid) {
   const pane = sid ? getPane(sid) : ui.inner;
   pane?.querySelectorAll?.(".turn.streaming").forEach((el) => {
     el.classList.remove("streaming");
-    // Coalesce many Text nodes from streaming into one (cheaper layout/scroll)
+    // Coalesce many Text nodes from streaming, then make URLs clickable
     const body = el.querySelector(".body");
-    if (body && body.childNodes.length > 1) {
-      const t = body.textContent;
-      body.textContent = t;
+    if (body) {
+      const t = body.textContent || "";
+      if (/https?:\/\//i.test(t)) setMessageBody(body, t);
+      else if (body.childNodes.length > 1) body.textContent = t;
+      else body.dataset.linkified = "1";
     }
   });
   // Also coalesce thought rows
@@ -2349,6 +2353,75 @@ function shouldClamp(text) {
   return (text || "").length > CLAMP || (text || "").split("\n").length > 8;
 }
 
+/** Match http(s) URLs in plain text (trailing punctuation stripped into separate text). */
+const MSG_URL_RE = /https?:\/\/[^\s<>"'`]+/gi;
+
+/**
+ * Build a document fragment: plain text + clickable <a.msg-link> for http(s) URLs.
+ * Safe: only creates text nodes and anchors; never injects raw HTML.
+ */
+function linkifyToFragment(text) {
+  const frag = document.createDocumentFragment();
+  const raw = String(text || "");
+  if (!raw) return frag;
+  MSG_URL_RE.lastIndex = 0;
+  let last = 0;
+  let m;
+  while ((m = MSG_URL_RE.exec(raw)) !== null) {
+    if (m.index > last) {
+      frag.appendChild(document.createTextNode(raw.slice(last, m.index)));
+    }
+    let url = m[0];
+    let trail = "";
+    // Peel common trailing punctuation not usually part of the URL
+    while (url.length > 8 && /[),.;:!?，。；：！？]$/.test(url)) {
+      // keep balanced ) if it looks like part of the path
+      if (url.endsWith(")") && (url.match(/\(/g) || []).length > (url.match(/\)/g) || []).length - 1) {
+        break;
+      }
+      trail = url.slice(-1) + trail;
+      url = url.slice(0, -1);
+    }
+    if (/^https?:\/\/.+/i.test(url)) {
+      const a = document.createElement("a");
+      a.className = "msg-link";
+      a.href = url;
+      a.textContent = url;
+      a.rel = "noopener noreferrer";
+      a.title = url;
+      frag.appendChild(a);
+    } else {
+      frag.appendChild(document.createTextNode(m[0]));
+      trail = "";
+    }
+    if (trail) frag.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) {
+    frag.appendChild(document.createTextNode(raw.slice(last)));
+  }
+  return frag;
+}
+
+/** Fill an element with linkified text (replaces children). */
+function setMessageBody(el, text) {
+  if (!el) return;
+  el.replaceChildren();
+  el.appendChild(linkifyToFragment(text));
+  el.dataset.linkified = "1";
+}
+
+/** After streaming, turn accumulated plain text into clickable links. */
+function linkifyElement(el) {
+  if (!el) return;
+  const text = el.textContent || "";
+  if (!text || !/https?:\/\//i.test(text)) {
+    el.dataset.linkified = "1";
+    return;
+  }
+  setMessageBody(el, text);
+}
+
 /**
  * Create a message bubble. Images live INSIDE the turn (not a free-floating
  * strip at the bottom of the thread).
@@ -2361,7 +2434,12 @@ function appendTurn(role, text, { stream = false, clampable = true, images = [],
   if (stream) turn.classList.add("streaming");
   const body = document.createElement("div");
   body.className = "body";
-  body.textContent = text || "";
+  // Stream as plain text (fast); linkify when stream ends / for history
+  if (stream) {
+    body.textContent = text || "";
+  } else {
+    setMessageBody(body, text || "");
+  }
 
   // User: images above text; assistant: text then images (filled as they arrive)
   if (role === "user" && images?.length) {
@@ -4902,6 +4980,35 @@ $("setup-continue")?.addEventListener("click", () => hideSetup(true));
 $("setup-open-cli-doc")?.addEventListener("click", () => {
   void grokDesktop.openExternal?.("https://x.ai/cli");
 });
+// Developer card links (Settings → About)
+function openDevUrl(el) {
+  const url = el?.dataset?.url || el?.getAttribute?.("data-url");
+  if (url) void grokDesktop.openExternal?.(url);
+}
+$("dev-github-profile")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  openDevUrl(e.currentTarget);
+});
+["btn-dev-feedback", "btn-dev-sponsor", "btn-dev-repo", "btn-dev-releases"].forEach((id) => {
+  $(id)?.addEventListener("click", (e) => openDevUrl(e.currentTarget));
+});
+
+// Chat message links → system browser (not inside Electron)
+document.addEventListener(
+  "click",
+  (e) => {
+    const a = e.target?.closest?.("a.msg-link");
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const href = a.getAttribute("href") || a.href || "";
+    if (/^https?:\/\//i.test(href)) {
+      void grokDesktop.openExternal?.(href);
+    }
+  },
+  true,
+);
+
 $("btn-check-update")?.addEventListener("click", () => void checkForUpdates(true));
 $("btn-run-diagnose")?.addEventListener("click", async () => {
   const diag = await showSetupIfNeeded(true);

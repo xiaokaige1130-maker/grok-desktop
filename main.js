@@ -124,6 +124,21 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // Any window.open / target=_blank → system browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (e, url) => {
+    // Keep app on file:// UI; open external http(s) outside
+    if (/^https?:\/\//i.test(url)) {
+      e.preventDefault();
+      shell.openExternal(url).catch(() => {});
+    }
+  });
+
   // Native right-click: 复制 / 粘贴 / 剪切 / 全选（输入框与选中文本）
   mainWindow.webContents.on("context-menu", (_e, params) => {
     const template = [];
