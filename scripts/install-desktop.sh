@@ -43,7 +43,7 @@ if [[ -f "$ICON_BASE/256x256/apps/grok-desktop.png" ]]; then
 fi
 
 # Electron on Linux often uses package.json "name" as WM_CLASS
-WM_CLASS="linux-grok-desktop"
+WM_CLASS="grok-desktop"
 
 cat > "$APP_DIR/grok-desktop.desktop" <<EOF
 [Desktop Entry]

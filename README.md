@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases/latest">
+  <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest">
     <img src="https://img.shields.io/badge/Download-Windows-1473E6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows" />
   </a>
-  <a href="https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases/latest">
+  <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest">
     <img src="https://img.shields.io/badge/Download-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=111111" alt="Download for Linux" />
   </a>
 </p>
@@ -32,8 +32,8 @@
 <p align="center">
   <a href="#中文">中文</a> ·
   <a href="#english">English</a> ·
-  <a href="https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases">全部版本 / Releases</a> ·
-  <a href="https://github.com/xiaokaige1130-maker/linux-grok-desktop/issues">问题反馈 / Issues</a>
+  <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases">全部版本 / Releases</a> ·
+  <a href="https://github.com/xiaokaige1130-maker/grok-desktop/issues">问题反馈 / Issues</a>
 </p>
 
 ![Grok Desktop banner](docs/screenshots/hero.jpg)
@@ -138,7 +138,7 @@ grok login
 
 ### Windows 安装
 
-从 [最新 Release](https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases/latest) 下载以下任一文件：
+从 [最新 Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest) 下载以下任一文件：
 
 | 文件 | 适合谁 |
 |---|---|
@@ -168,7 +168,7 @@ setx GROK_CLI "C:\完整路径\grok.exe"
 
 ### Linux 安装
 
-从 [最新 Release](https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases/latest) 下载 `.deb`。
+从 [最新 Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest) 下载 `.deb`。
 
 Debian / Ubuntu：
 
@@ -302,7 +302,7 @@ Follow the official instructions at [x.ai/cli](https://x.ai/cli) if the first co
 
 ### Install on Windows
 
-Download one of these files from the [latest Release](https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases/latest):
+Download one of these files from the [latest Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest):
 
 | Package | Use |
 |---|---|
@@ -341,8 +341,8 @@ The app checks `~/.local/bin/grok`, `/usr/local/bin/grok`, `/usr/bin/grok`, and 
 Requirements: Node.js 18+, npm, and an authenticated official Grok CLI.
 
 ```bash
-git clone https://github.com/xiaokaige1130-maker/linux-grok-desktop.git
-cd linux-grok-desktop
+git clone https://github.com/xiaokaige1130-maker/grok-desktop.git
+cd grok-desktop
 npm install
 npm start
 ```
@@ -396,7 +396,7 @@ The panel becomes populated after the agent creates or updates a plan. Small tas
 
 ### Contributing
 
-Bug reports and focused pull requests are welcome through [GitHub Issues](https://github.com/xiaokaige1130-maker/linux-grok-desktop/issues). Include your operating system, Grok CLI version, reproduction steps, and relevant error text.
+Bug reports and focused pull requests are welcome through [GitHub Issues](https://github.com/xiaokaige1130-maker/grok-desktop/issues). Include your operating system, Grok CLI version, reproduction steps, and relevant error text.
 
 ### Project Notice
 

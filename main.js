@@ -1208,11 +1208,11 @@ ipcMain.handle("app:notify", async (_e, { title, body } = {}) => {
 ipcMain.handle("app:checkUpdate", async () => {
   const current = DESKTOP_VERSION;
   const api =
-    "https://api.github.com/repos/xiaokaige1130-maker/linux-grok-desktop/releases/latest";
+    "https://api.github.com/repos/xiaokaige1130-maker/grok-desktop/releases/latest";
   try {
     const data = await new Promise((resolve, reject) => {
       const req = net.request({ url: api, method: "GET" });
-      req.setHeader("User-Agent", "linux-grok-desktop");
+      req.setHeader("User-Agent", "grok-desktop");
       req.setHeader("Accept", "application/vnd.github+json");
       let body = "";
       req.on("response", (res) => {
@@ -1241,7 +1241,7 @@ ipcMain.handle("app:checkUpdate", async () => {
       current,
       latest: tag || null,
       hasUpdate: !!newer,
-      url: data.html_url || "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases",
+      url: data.html_url || "https://github.com/xiaokaige1130-maker/grok-desktop/releases",
       name: data.name || tag,
     };
   } catch (err) {
@@ -1251,7 +1251,7 @@ ipcMain.handle("app:checkUpdate", async () => {
       latest: null,
       hasUpdate: false,
       error: err.message || String(err),
-      url: "https://github.com/xiaokaige1130-maker/linux-grok-desktop/releases",
+      url: "https://github.com/xiaokaige1130-maker/grok-desktop/releases",
     };
   }
 });
