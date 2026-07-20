@@ -35,6 +35,10 @@ const DEFAULT_DESKTOP = {
    * safe = 审批 · balanced = 智能 · full = 完全访问
    */
   accessMode: "full",
+  /** 本地归档的会话 id（不删 CLI 数据，仅桌面端分组） */
+  archivedSessionIds: [],
+  /** 置顶会话 id */
+  pinnedSessionIds: [],
 };
 
 function configPath() {

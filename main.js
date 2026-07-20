@@ -430,6 +430,13 @@ ipcMain.handle("sessions:rename", async (_e, { sessionId, title }) => {
   return renameSession(sessionId, title);
 });
 
+/** 会话本地目录（供「在文件夹中显示」） */
+ipcMain.handle("sessions:path", async (_e, { sessionId } = {}) => {
+  const s = findSession(sessionId);
+  if (!s?.dir) return { ok: false, error: "会话目录不存在" };
+  return { ok: true, path: s.dir, id: s.id, cwd: s.cwd || null, title: s.title || null };
+});
+
 ipcMain.handle("sessions:delete", async (_e, { sessionId }) => {
   disposeAgent(sessionId);
   // prefer CLI delete, fallback to dir rm

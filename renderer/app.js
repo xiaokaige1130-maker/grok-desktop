@@ -207,7 +207,103 @@ let desktopSettings = {
   setupDismissed: false,
   locale: "zh",
   accessMode: "full",
+  archivedSessionIds: [],
+  pinnedSessionIds: [],
 };
+
+function archivedSet() {
+  return new Set(
+    Array.isArray(desktopSettings.archivedSessionIds) ? desktopSettings.archivedSessionIds : [],
+  );
+}
+function pinnedSet() {
+  return new Set(
+    Array.isArray(desktopSettings.pinnedSessionIds) ? desktopSettings.pinnedSessionIds : [],
+  );
+}
+function isArchived(id) {
+  return archivedSet().has(id);
+}
+function isPinned(id) {
+  return pinnedSet().has(id);
+}
+
+async function persistSessionLists(partial) {
+  try {
+    desktopSettings = {
+      ...desktopSettings,
+      ...(await grokDesktop.saveDesktopSettings(partial)),
+    };
+  } catch {
+    Object.assign(desktopSettings, partial);
+  }
+}
+
+async function toggleArchiveSession(id) {
+  const set = archivedSet();
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  const archivedSessionIds = [...set];
+  // archiving unpins
+  let pinnedSessionIds = [...pinnedSet()];
+  if (set.has(id)) pinnedSessionIds = pinnedSessionIds.filter((x) => x !== id);
+  await persistSessionLists({ archivedSessionIds, pinnedSessionIds });
+  renderSidebar(ui.search?.value || "");
+  flashToast(set.has(id) ? "已归档" : "已取消归档");
+}
+
+async function togglePinSession(id) {
+  const set = pinnedSet();
+  if (set.has(id)) set.delete(id);
+  else {
+    set.add(id);
+    // pin removes from archive for visibility
+    const arch = archivedSet();
+    if (arch.has(id)) {
+      arch.delete(id);
+      await persistSessionLists({
+        pinnedSessionIds: [...set],
+        archivedSessionIds: [...arch],
+      });
+      renderSidebar(ui.search?.value || "");
+      flashToast("已置顶");
+      return;
+    }
+  }
+  await persistSessionLists({ pinnedSessionIds: [...set] });
+  renderSidebar(ui.search?.value || "");
+  flashToast(set.has(id) ? "已置顶" : "已取消置顶");
+}
+
+function flashToast(msg) {
+  let el = document.getElementById("toast-flash");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast-flash";
+    el.className = "toast-flash";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg || "";
+  el.classList.add("show");
+  clearTimeout(flashToast._t);
+  flashToast._t = setTimeout(() => el.classList.remove("show"), 1600);
+}
+
+async function copyText(text) {
+  const s = String(text || "");
+  if (!s) throw new Error("无内容可复制");
+  try {
+    await navigator.clipboard.writeText(s);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+}
 
 /** @returns {"safe"|"balanced"|"full"} */
 function normalizeAccessMode(mode) {
@@ -995,14 +1091,25 @@ function showSessionCtx(x, y, sessionId) {
   const menu = $("session-ctx");
   if (!menu) return;
   ctxSessionId = sessionId;
+  // dynamic labels
+  const pinBtn = $("ctx-pin");
+  const archBtn = $("ctx-archive");
+  if (pinBtn) pinBtn.textContent = isPinned(sessionId) ? "取消置顶" : "置顶";
+  if (archBtn) archBtn.textContent = isArchived(sessionId) ? "取消归档" : "归档";
+  const s = sessions.find((x) => x.id === sessionId);
+  const cwdBtn = menu.querySelector('[data-act="copy-cwd"]');
+  if (cwdBtn) cwdBtn.disabled = !s?.cwd;
   menu.classList.remove("hidden");
-  // position within viewport
+  // measure then clamp to viewport (menu grew with more actions)
   const pad = 8;
-  const rect = { w: 168, h: 180 };
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  const mw = menu.offsetWidth || 200;
+  const mh = menu.offsetHeight || 320;
   let left = x;
   let top = y;
-  if (left + rect.w > window.innerWidth - pad) left = window.innerWidth - rect.w - pad;
-  if (top + rect.h > window.innerHeight - pad) top = window.innerHeight - rect.h - pad;
+  if (left + mw > window.innerWidth - pad) left = window.innerWidth - mw - pad;
+  if (top + mh > window.innerHeight - pad) top = window.innerHeight - mh - pad;
   menu.style.left = `${Math.max(pad, left)}px`;
   menu.style.top = `${Math.max(pad, top)}px`;
 }
@@ -1809,10 +1916,13 @@ async function fillSettingsSkills() {
     const list = await grokDesktop.listSkills();
     box.replaceChildren();
     if (!list.length) {
-      box.innerHTML = '<div class="list-empty">未发现 Skills</div>';
+      box.innerHTML =
+        '<div class="list-empty">未发现 Skills<br><span style="opacity:.8">可在侧栏 Skills 页新建，或放入 ~/.grok/skills</span></div>';
       return;
     }
-    for (const s of list) {
+    // 设置页只显示摘要（最多 12 条）
+    const shown = list.slice(0, 12);
+    for (const s of shown) {
       const row = document.createElement("div");
       row.className = "embed-item";
       row.innerHTML = `<div><div class="name"></div><div class="sub"></div></div><button type="button" class="btn ghost">调用</button>`;
@@ -1827,6 +1937,13 @@ async function fillSettingsSkills() {
         await runRealSlash(s.name);
       };
       box.appendChild(row);
+    }
+    if (list.length > shown.length) {
+      const more = document.createElement("div");
+      more.className = "list-empty";
+      more.style.padding = "8px";
+      more.textContent = `另有 ${list.length - shown.length} 个 · 在侧栏 Skills 查看全部`;
+      box.appendChild(more);
     }
   } catch (err) {
     box.innerHTML = `<div class="list-error">${err.message}</div>`;
@@ -1951,6 +2068,8 @@ ui.settingsSearch?.addEventListener("input", () => {
 });
 
 $("settings-goto-memory")?.addEventListener("click", () => switchView("memory"));
+$("settings-goto-skills")?.addEventListener("click", () => switchView("skills"));
+$("settings-goto-plugins")?.addEventListener("click", () => switchView("plugins"));
 
 // ── Model picker ───────────────────────────────────────
 
@@ -2145,6 +2264,74 @@ function groupByProject(items) {
   );
 }
 
+function makeSessionRow(s) {
+  const row = document.createElement("button");
+  row.type = "button";
+  const working = workingSessions.has(s.id) || promptInFlight.has(s.id);
+  const done = !working && doneSessions.has(s.id);
+  const pinned = isPinned(s.id);
+  const archived = isArchived(s.id);
+  row.className =
+    "session-row" +
+    (s.id === activeId ? " active" : "") +
+    (working ? " is-working" : "") +
+    (done ? " is-done" : "") +
+    (pinned ? " is-pinned" : "") +
+    (archived ? " is-archived" : "");
+  row.dataset.sessionId = s.id;
+  row.innerHTML = `
+    <span class="s-ind" aria-hidden="true"></span>
+    <span class="title"></span>
+    <span class="when"></span>`;
+  const ind = row.querySelector(".s-ind");
+  if (working) {
+    ind.className = "s-ind spin";
+    ind.title = "运行中";
+  } else if (done) {
+    ind.className = "s-ind done";
+    ind.title = "已完成 · 点开清除";
+  } else {
+    ind.className = "s-ind";
+  }
+  row.querySelector(".title").textContent = s.title || s.id.slice(0, 8);
+  row.querySelector(".title").title = `${s.title || s.id}\n${s.id}`;
+  row.querySelector(".when").textContent = working
+    ? "运行中"
+    : done
+      ? "已完成"
+      : relativeTime(s.updatedAt);
+  row.onclick = (e) => {
+    e.stopPropagation();
+    if (view !== "chat") switchView("chat");
+    void selectSession(s.id);
+  };
+  return row;
+}
+
+function appendProjectGroup(listEl, g, { icon = "📁", headClass = "" } = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "project" + (collapsed.has(g.name) ? " collapsed" : "");
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "project-head" + (headClass ? " " + headClass : "");
+  head.innerHTML = `<span></span><span class="name"></span><span class="chev">▾</span>`;
+  head.querySelector("span").textContent = icon;
+  head.querySelector(".name").textContent = g.name;
+  head.title = g.cwd || g.name;
+  head.onclick = (e) => {
+    e.stopPropagation();
+    if (collapsed.has(g.name)) collapsed.delete(g.name);
+    else collapsed.add(g.name);
+    renderSidebar(ui.search?.value || "");
+  };
+  wrap.appendChild(head);
+  const body = document.createElement("div");
+  body.className = "project-body";
+  for (const s of g.sessions) body.appendChild(makeSessionRow(s));
+  wrap.appendChild(body);
+  listEl.appendChild(wrap);
+}
+
 function renderSidebar(filter = "") {
   const q = filter.trim().toLowerCase();
   const items = !q
@@ -2165,64 +2352,61 @@ function renderSidebar(filter = "") {
     return;
   }
 
-  for (const g of groupByProject(items)) {
+  const arch = archivedSet();
+  const pin = pinnedSet();
+  const activeItems = items.filter((s) => !arch.has(s.id));
+  const archivedItems = items.filter((s) => arch.has(s.id));
+  const pinnedItems = activeItems.filter((s) => pin.has(s.id));
+  const restItems = activeItems.filter((s) => !pin.has(s.id));
+
+  if (pinnedItems.length) {
+    appendProjectGroup(
+      ui.list,
+      { name: `置顶 · ${pinnedItems.length}`, cwd: null, sessions: pinnedItems },
+      { icon: "📌" },
+    );
+  }
+  for (const g of groupByProject(restItems)) {
+    appendProjectGroup(ui.list, g, { icon: "📁" });
+  }
+  if (archivedItems.length) {
+    const archKey = "归档";
+    // 默认折叠；用户展开过则记住
+    try {
+      if (!sessionStorage.getItem("arch-expanded")) collapsed.add(archKey);
+    } catch {
+      collapsed.add(archKey);
+    }
     const wrap = document.createElement("div");
-    wrap.className = "project" + (collapsed.has(g.name) ? " collapsed" : "");
+    wrap.className = "project" + (collapsed.has(archKey) ? " collapsed" : "");
     const head = document.createElement("button");
     head.type = "button";
-    head.className = "project-head";
-    head.innerHTML = `<span>📁</span><span class="name"></span><span class="chev">▾</span>`;
-    head.querySelector(".name").textContent = g.name;
-    head.title = g.cwd || g.name;
+    head.className = "project-head archive-head";
+    head.innerHTML = `<span>📦</span><span class="name"></span><span class="chev">▾</span>`;
+    head.querySelector(".name").textContent = `归档 · ${archivedItems.length}`;
     head.onclick = (e) => {
       e.stopPropagation();
-      if (collapsed.has(g.name)) collapsed.delete(g.name);
-      else collapsed.add(g.name);
-      renderSidebar(ui.search.value);
+      if (collapsed.has(archKey)) {
+        collapsed.delete(archKey);
+        try {
+          sessionStorage.setItem("arch-expanded", "1");
+        } catch {
+          /* ignore */
+        }
+      } else {
+        collapsed.add(archKey);
+        try {
+          sessionStorage.removeItem("arch-expanded");
+        } catch {
+          /* ignore */
+        }
+      }
+      renderSidebar(ui.search?.value || "");
     };
     wrap.appendChild(head);
-
     const body = document.createElement("div");
     body.className = "project-body";
-    for (const s of g.sessions) {
-      const row = document.createElement("button");
-      row.type = "button";
-      const working = workingSessions.has(s.id) || promptInFlight.has(s.id);
-      const done = !working && doneSessions.has(s.id);
-      row.className =
-        "session-row" +
-        (s.id === activeId ? " active" : "") +
-        (working ? " is-working" : "") +
-        (done ? " is-done" : "");
-      row.dataset.sessionId = s.id;
-      row.innerHTML = `
-        <span class="s-ind" aria-hidden="true"></span>
-        <span class="title"></span>
-        <span class="when"></span>`;
-      const ind = row.querySelector(".s-ind");
-      if (working) {
-        ind.className = "s-ind spin";
-        ind.title = "运行中";
-      } else if (done) {
-        ind.className = "s-ind done";
-        ind.title = "已完成 · 点开清除";
-      } else {
-        ind.className = "s-ind";
-      }
-      row.querySelector(".title").textContent = s.title || s.id.slice(0, 8);
-      row.querySelector(".title").title = s.title || s.id;
-      row.querySelector(".when").textContent = working
-        ? "运行中"
-        : done
-          ? "已完成"
-          : relativeTime(s.updatedAt);
-      row.onclick = (e) => {
-        e.stopPropagation();
-        if (view !== "chat") switchView("chat");
-        void selectSession(s.id);
-      };
-      body.appendChild(row);
-    }
+    for (const s of archivedItems) body.appendChild(makeSessionRow(s));
     wrap.appendChild(body);
     ui.list.appendChild(wrap);
   }
@@ -4778,28 +4962,61 @@ $("session-ctx")?.addEventListener("click", async (e) => {
   const act = btn.dataset.act;
   hideSessionCtx();
   const s = sessions.find((x) => x.id === id);
-  if (act === "open") {
-    if (view !== "chat") switchView("chat");
-    void selectSession(id);
-  } else if (act === "rename") {
-    await renameSessionUi(id, s?.title || "");
-  } else if (act === "delete") {
-    const ok = await askConfirm({
-      title: "删除会话",
-      message: `确定删除「${s?.title || id}」？`,
-      okLabel: "删除",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
+  try {
+    if (act === "open") {
+      if (view !== "chat") switchView("chat");
+      void selectSession(id);
+    } else if (act === "pin") {
+      await togglePinSession(id);
+    } else if (act === "rename") {
+      await renameSessionUi(id, s?.title || "");
+    } else if (act === "export") {
+      const r = await grokDesktop.exportSession(id);
+      if (r?.ok) flashToast("已导出");
+      else if (!r?.cancelled) flashToast(r?.error || "导出取消");
+    } else if (act === "copy-id") {
+      await copyText(id);
+      flashToast("已复制会话 ID");
+    } else if (act === "copy-title") {
+      await copyText(s?.title || id);
+      flashToast("已复制标题");
+    } else if (act === "copy-cwd") {
+      if (!s?.cwd) {
+        flashToast("无工作目录");
+        return;
+      }
+      await copyText(s.cwd);
+      flashToast("已复制工作目录");
+    } else if (act === "reveal") {
+      const info = await grokDesktop.sessionPath?.(id);
+      if (!info?.ok || !info.path) {
+        flashToast(info?.error || "找不到会话目录");
+        return;
+      }
+      await grokDesktop.showItem?.(info.path);
+    } else if (act === "archive") {
+      await toggleArchiveSession(id);
+    } else if (act === "delete") {
+      const ok = await askConfirm({
+        title: "删除会话",
+        message: `确定删除「${s?.title || id}」？此操作不可恢复。`,
+        okLabel: "删除",
+        danger: true,
+      });
+      if (!ok) return;
       await grokDesktop.deleteSession(id);
+      // also drop from pin/archive lists
+      await persistSessionLists({
+        pinnedSessionIds: [...pinnedSet()].filter((x) => x !== id),
+        archivedSessionIds: [...archivedSet()].filter((x) => x !== id),
+      });
       removeOpenTab(id);
       if (activeId === id) showWelcome();
       await refreshSessions();
       schedulePersistTabs();
-    } catch (err) {
-      alert(err.message || err);
     }
+  } catch (err) {
+    flashToast(err.message || String(err));
   }
 });
 

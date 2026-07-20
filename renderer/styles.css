@@ -2132,7 +2132,8 @@ body.compact { font-size: 12.5px; }
 .session-ctx {
   position: fixed;
   z-index: 9990;
-  min-width: 160px;
+  min-width: 188px;
+  max-width: 260px;
   padding: 6px;
   border-radius: 12px;
   border: 1px solid var(--line);
@@ -2157,11 +2158,44 @@ body.compact { font-size: 12.5px; }
 .session-ctx .ctx-item:hover { background: var(--hover); }
 .session-ctx .ctx-item.danger { color: #fda4af; }
 .session-ctx .ctx-item.danger:hover { background: rgba(251, 113, 133, 0.12); }
+.session-ctx .ctx-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
 .session-ctx .ctx-sep {
   height: 1px;
   margin: 4px 6px;
   background: var(--line-soft);
 }
+.session-row.is-pinned .title::before {
+  content: "📌 ";
+  font-size: 11px;
+}
+.session-row.is-archived .title {
+  opacity: 0.75;
+}
+.project-head.archive-head span:first-child {
+  opacity: 0.85;
+}
+.toast-flash {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(24, 24, 30, 0.95);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12.5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.toast-flash.show { opacity: 1; }
 
 /* Search hit highlight in thread */
 mark.search-hl-mark {

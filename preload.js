@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   renameSession: (sessionId, title) =>
     ipcRenderer.invoke("sessions:rename", { sessionId, title }),
   deleteSession: (sessionId) => ipcRenderer.invoke("sessions:delete", { sessionId }),
+  sessionPath: (sessionId) => ipcRenderer.invoke("sessions:path", { sessionId }),
   searchSessions: (query, limit) =>
     ipcRenderer.invoke("sessions:searchContent", { query, limit }),
   prompt: (payload) => ipcRenderer.invoke("session:prompt", payload),

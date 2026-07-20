@@ -461,18 +461,37 @@
 
             <div class="settings-panel" id="panel-skills" data-panel="skills">
               <h1>Skills</h1>
-              <p class="settings-lead">本机已发现的 Skills（对话中键入 / 可调用）</p>
+              <p class="settings-lead">可复用任务说明 · 对话中键入 / 可调用</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">管理 Skills</div>
+                    <div class="scard-desc">浏览、新建、查看详情请使用侧栏 Skills 页</div>
+                  </div>
+                  <button type="button" class="btn primary" id="settings-goto-skills">打开 Skills →</button>
+                </div>
+              </div>
+              <div class="scard-head" style="margin-top:4px">已发现（摘要）</div>
               <div id="settings-skills-list" class="embed-list"></div>
             </div>
 
             <div class="settings-panel" id="panel-plugins" data-panel="plugins">
               <h1>插件</h1>
-              <p class="settings-lead">已安装插件（真实 grok plugin list）</p>
-              <div id="settings-plugins-list" class="embed-list"></div>
-              <div class="install-bar" style="padding:12px 0 0">
-                <input id="settings-plugin-spec" type="text" placeholder="owner/repo 或 git URL" />
-                <button type="button" id="settings-plugin-install" class="btn primary">安装</button>
+              <p class="settings-lead">扩展 Skills / MCP / Hooks · 完整管理请用侧栏插件页</p>
+              <div class="scard">
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title">管理插件</div>
+                    <div class="scard-desc">市场、启用/禁用、卸载</div>
+                  </div>
+                  <button type="button" class="btn primary" id="settings-goto-plugins">打开插件 →</button>
+                </div>
               </div>
+              <div class="install-bar" style="padding:12px 0">
+                <input id="settings-plugin-spec" type="text" placeholder="插件名、owner/repo 或 git URL" />
+                <button type="button" id="settings-plugin-install" class="btn primary">快速安装</button>
+              </div>
+              <div id="settings-plugins-list" class="embed-list"></div>
             </div>
 
             <div class="settings-panel" id="panel-mcp" data-panel="mcp">
@@ -634,8 +653,16 @@
     <!-- Session list context menu -->
     <div id="session-ctx" class="session-ctx hidden" role="menu" aria-label="会话菜单">
       <button type="button" class="ctx-item" data-act="open" role="menuitem">打开</button>
+      <button type="button" class="ctx-item" data-act="pin" role="menuitem" id="ctx-pin">置顶</button>
       <button type="button" class="ctx-item" data-act="rename" role="menuitem">重命名</button>
       <div class="ctx-sep"></div>
+      <button type="button" class="ctx-item" data-act="export" role="menuitem">导出 Markdown</button>
+      <button type="button" class="ctx-item" data-act="copy-id" role="menuitem">复制会话 ID</button>
+      <button type="button" class="ctx-item" data-act="copy-title" role="menuitem">复制标题</button>
+      <button type="button" class="ctx-item" data-act="copy-cwd" role="menuitem">复制工作目录</button>
+      <button type="button" class="ctx-item" data-act="reveal" role="menuitem">在文件夹中显示</button>
+      <div class="ctx-sep"></div>
+      <button type="button" class="ctx-item" data-act="archive" role="menuitem" id="ctx-archive">归档</button>
       <button type="button" class="ctx-item danger" data-act="delete" role="menuitem">删除</button>
     </div>
 
