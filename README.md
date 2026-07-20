@@ -10,12 +10,15 @@
 </p>
 
 <p align="center">
-  Windows 11 / 10 · Linux · Multi-session · Plan panel · Diff viewer · MCP · Skills · 中文 / English
+  Windows 11 / 10 · macOS · Linux · Multi-session · Plan panel · Diff viewer · MCP · Skills · 中文 / English
 </p>
 
 <p align="center">
   <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest">
     <img src="https://img.shields.io/badge/Download-Windows-1473E6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows" />
+  </a>
+  <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest">
+    <img src="https://img.shields.io/badge/Download-macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
   </a>
   <a href="https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest">
     <img src="https://img.shields.io/badge/Download-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=111111" alt="Download for Linux" />
@@ -24,7 +27,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.8.5-22C55E?style=flat-square" alt="Version 0.8.5" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-334155?style=flat-square" alt="Windows and Linux" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-334155?style=flat-square" alt="Windows, macOS and Linux" />
   <img src="https://img.shields.io/badge/UI-中文%20%7C%20English-E11D48?style=flat-square" alt="Chinese and English UI" />
   <img src="https://img.shields.io/badge/backend-official%20Grok%20CLI-111827?style=flat-square" alt="Official Grok CLI backend" />
 </p>
@@ -58,7 +61,7 @@ Grok Desktop 把 Grok CLI 的 Agent 能力放进一个适合长期工作的独�
 - **Agent 后端**：官方 `grok agent`，通过 ACP 通信。
 - **账号与额度**：继续由官方 Grok CLI 和你的 xAI 账号管理。
 - **会话与配置**：保存在本机，不需要把 CLI 登录信息交给桌面应用。
-- **支持平台**：Windows x64 与 Linux x64。
+- **支持平台**：Windows x64、macOS x64、Linux x64。
 
 ### 界面预览
 
@@ -191,6 +194,24 @@ setx GROK_CLI "C:\完整路径\grok.exe"
 
 设置后完全退出并重新打开 Grok Desktop。
 
+### macOS 安装
+
+从 [最新 Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest) 下载：
+
+| 文件 | 说明 |
+|---|---|
+| `Grok-Desktop-*-macOS-x64.dmg` | 推荐。拖到「应用程序」安装。 |
+| `Grok-Desktop-*-macOS-x64.zip` | 解压即用。 |
+
+首次运行：
+
+1. 在终端确认 `grok --version` 正常，并执行 `grok login`。
+2. 打开 DMG，将 **Grok Desktop** 拖到「应用程序」。
+3. 若系统提示「无法验证开发者」，可在 App 上 **右键 → 打开** 一次，或到「系统设置 → 隐私与安全性」允许。
+4. 点击 **新对话**，选择工作目录。
+
+> 当前 Mac 安装包为 **Intel x64**（在 Apple Silicon 上可通过 Rosetta 运行）。应用会自动查找 `~/.grok/bin/grok`、Homebrew 等常见路径；自定义路径可设置环境变量 `GROK_CLI`。
+
 ### Linux 安装
 
 从 [最新 Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest) 下载 `.deb`。
@@ -281,7 +302,7 @@ This is not a browser chat wrapper and it does not replace the official CLI:
 - **Agent backend:** official `grok agent`, connected through ACP.
 - **Account and quota:** managed by the official Grok CLI and your xAI account.
 - **Local state:** sessions and desktop preferences remain on your computer.
-- **Platforms:** Windows x64 and Linux x64.
+- **Platforms:** Windows x64, macOS x64, and Linux x64.
 
 ### Interface
 
@@ -387,6 +408,22 @@ setx GROK_CLI "C:\full\path\to\grok.exe"
 > [!NOTE]
 > The Windows packages are currently unsigned. SmartScreen may display an unknown publisher warning. Verify that the file came from this repository's Release page before continuing.
 
+### Install on macOS
+
+Download from the [latest Release](https://github.com/xiaokaige1130-maker/grok-desktop/releases/latest):
+
+| Package | Use |
+|---|---|
+| `Grok-Desktop-*-macOS-x64.dmg` | Recommended. Drag into Applications. |
+| `Grok-Desktop-*-macOS-x64.zip` | Unzip and run. |
+
+1. In Terminal, run `grok --version` and `grok login`.
+2. Open the DMG and drag **Grok Desktop** to Applications.
+3. If Gatekeeper blocks the app, use **Right-click → Open** once, or allow it under System Settings → Privacy & Security.
+4. Start a new chat and pick a workspace folder.
+
+> macOS builds are **Intel x64** (Apple Silicon runs via Rosetta). The app looks for `~/.grok/bin/grok`, Homebrew, and other common paths; set `GROK_CLI` for a custom location.
+
 ### Install on Linux
 
 Debian / Ubuntu:
@@ -413,6 +450,7 @@ Build packages:
 
 ```bash
 npm run dist:win       # NSIS installer + portable executable, run on Windows
+npm run dist:mac       # DMG + ZIP, run on macOS (x64)
 npm run dist:deb       # Debian package, run on Linux
 npm run dist:appimage  # AppImage, run on Linux
 ```
@@ -482,6 +520,6 @@ Bug reports and focused pull requests are welcome through [GitHub Issues](https:
 
 <p align="center">
   <strong>Grok Desktop 0.8.5</strong><br />
-  Windows and Linux, powered by the official Grok CLI.<br />
+  Windows · macOS · Linux, powered by the official Grok CLI.<br />
   <a href="./CHANGELOG.md">Changelog</a>
 </p>

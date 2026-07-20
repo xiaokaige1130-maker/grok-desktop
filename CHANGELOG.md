@@ -3,7 +3,7 @@
 本文档记录 **Grok Desktop** 各版本用户可见的改动。  
 安装包见：[Releases](https://github.com/xiaokaige1130-maker/grok-desktop/releases)
 
-> 平台：Windows x64 · Linux x64（deb）  
+> 平台：Windows x64 · macOS x64（DMG / ZIP）· Linux x64（deb）  
 > 后端：本机官方 `grok` CLI（ACP），非网页套壳
 
 ---
