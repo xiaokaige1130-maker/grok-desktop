@@ -8,6 +8,31 @@
 
 ---
 
+## [0.8.5] — 2026-07-21
+
+**主题：macOS 支持 · 窗口拖拽 · Dock 启动 PATH · 系统菜单**
+
+Release：https://github.com/xiaokaige1130-maker/grok-desktop/releases/tag/v0.8.5
+
+### macOS
+
+| 改动 | 说明 |
+|------|------|
+| **打包** | `npm run dist:mac` → DMG + ZIP（x64） |
+| **标题栏** | `hiddenInset` + 红绿灯位置；顶部拖拽条 / 品牌区 / 顶栏可拖窗口 |
+| **系统菜单** | 应用菜单含编辑（Cmd+C/V/A/Z）、查看、窗口 |
+| **Dock** | 点击 Dock 图标恢复/前置窗口；About 面板版本号 |
+| **CLI 查找** | GUI 从 Dock 启动时 PATH 很短；探测 `~/.grok/bin/grok`、`~/.local/bin`、Homebrew，并给子进程补全 PATH |
+
+### 其它
+
+- `preload` 暴露 `platform`，界面按 `platform-darwin` 适配边距与 ⌘ 快捷键展示  
+- 侧栏品牌图标略缩小，适配红绿灯留白  
+- 安装包：`Grok-Desktop-0.8.5-macOS-x64.dmg` / `.zip`
+
+---
+
+
 ## [0.8.4] — 2026-07-20
 
 **主题：会话管理做强 · 右键菜单 · 本地归档/置顶 · Skills/插件设置去重**

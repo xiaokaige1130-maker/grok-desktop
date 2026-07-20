@@ -11,11 +11,13 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- macOS: top drag strip (hiddenInset has no native title bar to drag) -->
+    <div id="window-drag-strip" aria-hidden="true"></div>
     <div id="app">
       <!-- ===== LEFT: brand + nav + session rail ===== -->
       <aside id="sidebar">
         <div class="brand">
-          <img class="brand-mark" src="icon.png" alt="Grok" width="36" height="36" />
+          <img class="brand-mark" src="icon.png" alt="Grok" width="28" height="28" />
           <div class="brand-text">
             <div class="brand-name">Grok Desktop</div>
           </div>
@@ -331,7 +333,7 @@
                   <div><span class="kbd-txt">引导</span><span data-i18n="sc.guide">打断并立刻发送纠正</span></div>
                   <div><kbd>P</kbd><span data-i18n="sc.plan">打开 / 关闭计划面板</span></div>
                   <div><kbd>N</kbd><span data-i18n="sc.n">新对话（焦点不在输入框时）</span></div>
-                  <div><kbd>Ctrl</kbd>+<kbd>Tab</kbd><span data-i18n="sc.tab">切换已打开会话</span></div>
+                  <div><kbd class="mod-key">Ctrl</kbd>+<kbd>Tab</kbd><span data-i18n="sc.tab">切换已打开会话</span></div>
                   <div><kbd>/</kbd><span data-i18n="sc.slash">斜杠命令</span></div>
                 </div>
               </div>

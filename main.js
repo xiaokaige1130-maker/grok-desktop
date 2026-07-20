@@ -96,6 +96,7 @@ function mediaForRenderer(media) {
 }
 
 const APP_ICON = path.join(__dirname, "assets", "icon.png");
+const DESKTOP_VERSION = require("./package.json").version;
 
 function createWindow() {
   // Compact default size — fits a normal laptop without dominating the screen
@@ -108,7 +109,9 @@ function createWindow() {
     icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
     backgroundColor: "#0b0b0c",
     show: false,
+    // macOS: hide native title bar but keep traffic lights; drag surface is CSS -webkit-app-region
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    trafficLightPosition: process.platform === "darwin" ? { x: 14, y: 14 } : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -117,6 +120,38 @@ function createWindow() {
       webSecurity: true,
     },
   });
+
+  mainWindow.setMovable(true);
+
+  // macOS hiddenInset has no native title-bar drag surface.
+  // Inject drag CSS from main so it cannot be skipped by renderer class timing / cache.
+  if (process.platform === "darwin") {
+    const dragCss = `
+      #window-drag-strip,
+      .brand, .brand *,
+      .topbar, .page-header, .session-tabs {
+        -webkit-app-region: drag !important;
+      }
+      button, input, textarea, select, a, label,
+      .btn, .icon-btn, .rail-item, .status, .switch,
+      .session-actions, .page-actions, .topbar-right,
+      .search-box, .session-list, .settings-search, .settings-nav-scroll {
+        -webkit-app-region: no-drag !important;
+      }
+      .brand { padding-top: 42px !important; }
+      #app.settings-mode .settings-rail { padding-top: 36px !important; }
+      #window-drag-strip {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 28px;
+        z-index: 9999;
+        -webkit-app-region: drag !important;
+      }
+    `;
+    mainWindow.webContents.on("did-finish-load", () => {
+      mainWindow.webContents.insertCSS(dragCss).catch(() => {});
+    });
+  }
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
@@ -391,21 +426,119 @@ function registerAgent(sessionId, client, cwd, meta) {
 
 // Linux taskbar / .desktop StartupWMClass friendliness
 app.setName("Grok Desktop");
-if (process.platform === "linux" && fs.existsSync(APP_ICON)) {
-  // Helps some desktops associate the running window with our icon
-  app.whenReady().then(() => {
+
+/**
+ * macOS needs a real application menu so system edit accelerators work
+ * (Cmd+C / Cmd+V / Cmd+A / Cmd+Z). Without it, Electron often ignores them.
+ */
+function installApplicationMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about", label: `关于 ${app.name}` },
+              { type: "separator" },
+              { role: "services", label: "服务" },
+              { type: "separator" },
+              { role: "hide", label: `隐藏 ${app.name}` },
+              { role: "hideOthers", label: "隐藏其他" },
+              { role: "unhide", label: "全部显示" },
+              { type: "separator" },
+              { role: "quit", label: `退出 ${app.name}` },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo", label: "撤销" },
+        { role: "redo", label: "重做" },
+        { type: "separator" },
+        { role: "cut", label: "剪切" },
+        { role: "copy", label: "复制" },
+        { role: "paste", label: "粘贴" },
+        ...(isMac
+          ? [{ role: "pasteAndMatchStyle", label: "粘贴并匹配样式" }, { role: "delete", label: "删除" }]
+          : [{ role: "delete", label: "删除" }]),
+        { role: "selectAll", label: "全选" },
+      ],
+    },
+    {
+      label: "查看",
+      submenu: [
+        { role: "reload", label: "重新加载" },
+        { role: "forceReload", label: "强制重新加载" },
+        { role: "toggleDevTools", label: "开发者工具" },
+        { type: "separator" },
+        { role: "resetZoom", label: "实际大小" },
+        { role: "zoomIn", label: "放大" },
+        { role: "zoomOut", label: "缩小" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "进入全屏幕" },
+      ],
+    },
+    {
+      label: "窗口",
+      submenu: [
+        { role: "minimize", label: "最小化" },
+        { role: "zoom", label: "缩放" },
+        ...(isMac
+          ? [{ type: "separator" }, { role: "front", label: "前置全部窗口" }]
+          : [{ role: "close", label: "关闭" }]),
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.whenReady().then(() => {
+  try {
+    installApplicationMenu();
+  } catch (err) {
+    console.error("menu install failed", err);
+  }
+  if (process.platform === "darwin") {
+    try {
+      app.setAboutPanelOptions({
+        applicationName: "Grok Desktop",
+        applicationVersion: DESKTOP_VERSION,
+        version: DESKTOP_VERSION,
+        copyright: "Copyright © 2026",
+      });
+    } catch {
+      /* ignore */
+    }
+    if (fs.existsSync(APP_ICON) && app.dock?.setIcon) {
+      try {
+        app.dock.setIcon(APP_ICON);
+      } catch {
+        /* packaged .icns already set */
+      }
+    }
+  } else if (process.platform === "linux" && fs.existsSync(APP_ICON)) {
     try {
       if (app.dock?.setIcon) app.dock.setIcon(APP_ICON);
     } catch {
       /* ignore */
     }
-  });
-}
+  }
 
-app.whenReady().then(() => {
   createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // Dock click: recreate if fully closed, otherwise bring existing window forward
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 });
 
@@ -1117,8 +1250,6 @@ ipcMain.handle("models:set", async (_e, modelId, sessionId) => {
   return { ok: true, modelId: mid, result: res };
 });
 
-const DESKTOP_VERSION = require("./package.json").version;
-
 ipcMain.handle("app:info", async () => ({
   grokHome: grokHome(),
   grokCli: resolveGrokCli(),
@@ -1126,6 +1257,7 @@ ipcMain.handle("app:info", async () => ({
   desktopVersion: DESKTOP_VERSION,
   memoryEnabled: memory.isEnabledInConfig(),
   openAgents: agents.size,
+  platform: process.platform,
 }));
 
 /** 环境诊断：CLI 是否存在、是否像已登录 */

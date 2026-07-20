@@ -1,7 +1,7 @@
 {
   "name": "grok-desktop",
-  "version": "0.8.4",
-  "description": "Cross-platform Grok Build desktop shell for Windows and Linux",
+  "version": "0.8.5",
+  "description": "Cross-platform Grok Build desktop shell for Windows, Linux and macOS",
   "main": "main.js",
   "author": {
     "name": "xiaokaige1130-maker",
@@ -21,7 +21,9 @@
     "dist:deb": "electron-builder --linux deb",
     "dist:win": "electron-builder --win nsis portable --x64",
     "dist:win:setup": "electron-builder --win nsis --x64",
-    "dist:win:portable": "electron-builder --win portable --x64"
+    "dist:win:portable": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac dmg zip --x64",
+    "dist:mac:dir": "electron-builder --mac dir --x64"
   },
   "engines": {
     "node": ">=18"
@@ -48,7 +50,8 @@
       "scripts/run.sh",
       "scripts/install-desktop.sh",
       "scripts/smoke-test.js",
-      "README.md"
+      "README.md",
+      "CHANGELOG.md"
     ],
     "extraMetadata": {
       "main": "main.js"
@@ -131,6 +134,33 @@
     },
     "appImage": {
       "artifactName": "Grok-Desktop-${version}-x86_64.AppImage"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "artifactName": "Grok-Desktop-${version}-macOS-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Grok-Desktop-${version}-macOS-${arch}.dmg",
+      "title": "Grok Desktop ${version}"
     }
   }
 }

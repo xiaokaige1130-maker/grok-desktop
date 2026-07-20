@@ -7,6 +7,22 @@
 
 const $ = (id) => document.getElementById(id);
 
+// macOS hiddenInset: mark platform so CSS can enable -webkit-app-region drag surfaces
+(function applyPlatformClass() {
+  try {
+    const p = (typeof grokDesktop !== "undefined" && grokDesktop.platform) || "";
+    if (p) document.body.classList.add(`platform-${p}`);
+    // Settings shortcut list: show ⌘ instead of Ctrl on macOS
+    if (p === "darwin") {
+      document.querySelectorAll("kbd.mod-key").forEach((el) => {
+        el.textContent = "⌘";
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+})();
+
 /**
  * Electron does NOT support window.prompt (always returns null).
  * Use this in-app modal for text input / confirms.

@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.8.4-22C55E?style=flat-square" alt="Version 0.8.4" />
+  <img src="https://img.shields.io/badge/version-0.8.5-22C55E?style=flat-square" alt="Version 0.8.5" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-334155?style=flat-square" alt="Windows and Linux" />
   <img src="https://img.shields.io/badge/UI-中文%20%7C%20English-E11D48?style=flat-square" alt="Chinese and English UI" />
   <img src="https://img.shields.io/badge/backend-official%20Grok%20CLI-111827?style=flat-square" alt="Official Grok CLI backend" />
@@ -220,6 +220,7 @@ sudo apt-get install -f
 
 | 版本 | 要点 |
 |------|------|
+| **0.8.5** | macOS 支持（DMG、窗口拖拽、Dock PATH、系统菜单） |
 | **0.8.4** | 会话右键菜单、置顶/归档、Skills/插件设置去重 |
 | **0.8.3** | 用户/助手左右气泡分色 |
 | **0.8.2** | 关于页开发者信息、消息超链可点 |
@@ -434,6 +435,7 @@ Full notes: **[CHANGELOG.md](./CHANGELOG.md)**.
 
 | Version | Highlights |
 |---------|------------|
+| **0.8.5** | macOS support (DMG, window drag, Dock PATH, app menu) |
 | **0.8.4** | Session context menu, pin/archive, Skills/plugins settings cleanup |
 | **0.8.3** | Left/right chat bubbles for user vs assistant |
 | **0.8.2** | Developer card in About, clickable message links |
@@ -479,7 +481,7 @@ Bug reports and focused pull requests are welcome through [GitHub Issues](https:
 ---
 
 <p align="center">
-  <strong>Grok Desktop 0.8.4</strong><br />
+  <strong>Grok Desktop 0.8.5</strong><br />
   Windows and Linux, powered by the official Grok CLI.<br />
   <a href="./CHANGELOG.md">Changelog</a>
 </p>

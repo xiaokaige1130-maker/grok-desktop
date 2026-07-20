@@ -35,6 +35,66 @@ body.compact { font-size: 12.5px; }
 
 #app { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
 
+/*
+ * Window drag for custom title bars (macOS hiddenInset; also harmless on Win/Linux).
+ * Apply on the region AND descendants — some Chromium builds only hit-test children.
+ * Interactive controls must be no-drag or clicks will be swallowed as window moves.
+ */
+#window-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 9999;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+.brand,
+.brand *,
+.topbar,
+.page-header,
+.session-tabs,
+#app.settings-mode .settings-rail {
+  -webkit-app-region: drag;
+}
+button,
+input,
+textarea,
+select,
+a,
+label,
+.btn,
+.icon-btn,
+.rail-item,
+.status,
+.switch,
+.session-actions,
+.page-actions,
+.topbar-right,
+.search-box,
+.session-list,
+.settings-search,
+.settings-nav-scroll,
+.session-tabs button,
+.session-tabs .tab,
+.session-tabs [role="tab"] {
+  -webkit-app-region: no-drag;
+}
+/* Traffic lights sit over the left edge — clear space so brand / settings don't collide */
+body.platform-darwin .brand {
+  padding-top: 42px;
+}
+body.platform-darwin #app.settings-mode .settings-rail {
+  padding-top: 36px;
+}
+/* Keep top-right controls above the fixed drag strip */
+.topbar-right,
+.page-actions {
+  position: relative;
+  z-index: 10000;
+}
+
 /* ── Sidebar ── */
 #sidebar {
   flex: 0 0 var(--side-w);
@@ -51,12 +111,12 @@ body.compact { font-size: 12.5px; }
   padding: 16px 16px 12px; flex: 0 0 auto;
 }
 .brand-mark {
-  width: 36px; height: 36px; border-radius: 10px;
-  object-fit: cover;
+  width: 28px; height: 28px; border-radius: 8px;
+  object-fit: contain;
   display: block;
   flex-shrink: 0;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  background: #111;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  background: transparent;
 }
 .brand-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
 .brand-tag { font-size: 11px; color: var(--dim); margin-top: 1px; }

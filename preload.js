@@ -7,6 +7,9 @@ function on(channel, cb) {
 }
 
 contextBridge.exposeInMainWorld("grokDesktop", {
+  // host platform (sync) — used for macOS titlebar drag / traffic-light padding
+  platform: process.platform,
+
   // sessions
   listSessions: (opts) => ipcRenderer.invoke("sessions:list", opts || {}),
   loadHistory: (sessionId) => ipcRenderer.invoke("sessions:history", { sessionId }),
