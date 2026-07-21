@@ -24,6 +24,17 @@ const DEFAULT_DESKTOP = {
   wallpaperDim: 45,
   /** 后台会话完成时系统通知 */
   notifyOnDone: true,
+  /**
+   * 关闭窗口时最小化到系统托盘（不退出）
+   * Windows/Linux 默认 true；macOS 默认 false（更贴近 Dock 习惯）
+   */
+  closeToTray: process.platform !== "darwin",
+  /** 最小化时也进托盘（Windows 常见习惯，默认关避免吓人） */
+  minimizeToTray: false,
+  /** 开机自启（由主进程同步到 OS login item） */
+  openAtLogin: false,
+  /** 已展示过「关闭进入托盘」提示 */
+  trayHintShown: false,
   /** 启动时检查 GitHub 更新 */
   checkUpdates: true,
   /** 是否已完成首次环境引导 */
@@ -39,6 +50,10 @@ const DEFAULT_DESKTOP = {
   archivedSessionIds: [],
   /** 置顶会话 id */
   pinnedSessionIds: [],
+  /** 窗口几何：{ x, y, width, height } */
+  windowBounds: null,
+  /** 上次是否最大化 */
+  windowMaximized: false,
 };
 
 function configPath() {

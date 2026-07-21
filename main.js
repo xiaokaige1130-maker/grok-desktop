@@ -1,4 +1,17 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, net } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Menu,
+  Notification,
+  net,
+  Tray,
+  nativeImage,
+  nativeTheme,
+  screen,
+} = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -22,6 +35,14 @@ const mcp = require("./src/mcp");
 const { commandExists, defaultCwd, spawnCli } = require("./src/platform");
 
 let mainWindow = null;
+/** @type {import('electron').Tray | null} */
+let tray = null;
+/** When true, the next window close really quits (tray Quit / before-quit). */
+let isQuitting = false;
+/** Debounce timer for window bounds persistence */
+let boundsSaveTimer = null;
+/** Busy agent count for tray / taskbar feedback */
+let busyAgentCount = 0;
 /** @type {Map<string, { client: import('./src/acp').AcpClient, meta: object|null, cwd: string, lastUsed: number }>} */
 const agents = new Map();
 /** Currently focused session id (UI active tab). */
@@ -32,6 +53,44 @@ let activeSessionMeta = null;
 let openGeneration = 0;
 /** Max parallel agent processes (LRU dispose when exceeded). */
 const MAX_AGENTS = 6;
+
+const DESKTOP_VERSION = require("./package.json").version;
+const RELEASES_URL = "https://github.com/xiaokaige1130-maker/grok-desktop/releases";
+const REPO_URL = "https://github.com/xiaokaige1130-maker/grok-desktop";
+
+// Match dark UI on Windows/Linux title bars
+try {
+  nativeTheme.themeSource = "dark";
+} catch {
+  /* ignore */
+}
+
+// Windows toast grouping / Start menu identity
+if (process.platform === "win32") {
+  try {
+    app.setAppUserModelId("com.xiaokaige.grok-desktop");
+  } catch {
+    /* ignore */
+  }
+}
+
+// Single instance so tray / notifications always target one process
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+function uiLocale() {
+  try {
+    return settings.readDesktopSettings().locale === "en" ? "en" : "zh";
+  } catch {
+    return "zh";
+  }
+}
+
+function isZh() {
+  return uiLocale() !== "en";
+}
 
 function resolveGrokCli() {
   return plugins.resolveGrokCli();
@@ -96,22 +155,487 @@ function mediaForRenderer(media) {
 }
 
 const APP_ICON = path.join(__dirname, "assets", "icon.png");
-const DESKTOP_VERSION = require("./package.json").version;
+const APP_ICON_ICO = path.join(__dirname, "assets", "icon.ico");
+const APP_ICON_64 = path.join(__dirname, "assets", "icon-64.png");
+
+function resolveAppIconPath() {
+  if (process.platform === "win32" && fs.existsSync(APP_ICON_ICO)) return APP_ICON_ICO;
+  if (fs.existsSync(APP_ICON)) return APP_ICON;
+  if (fs.existsSync(APP_ICON_64)) return APP_ICON_64;
+  return null;
+}
+
+function resolveTrayImage() {
+  const candidates =
+    process.platform === "win32"
+      ? [APP_ICON_ICO, APP_ICON_64, APP_ICON]
+      : [APP_ICON_64, APP_ICON, APP_ICON_ICO];
+  for (const p of candidates) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) {
+        // Windows tray icons look sharper when kept small
+        if (process.platform === "win32" && (img.getSize().width > 32 || img.getSize().height > 32)) {
+          return img.resize({ width: 16, height: 16 });
+        }
+        return img;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return nativeImage.createEmpty();
+}
+
+function closeToTrayEnabled() {
+  try {
+    const ds = settings.readDesktopSettings();
+    if (ds.closeToTray === undefined || ds.closeToTray === null) {
+      return process.platform !== "darwin";
+    }
+    return !!ds.closeToTray;
+  } catch {
+    return process.platform !== "darwin";
+  }
+}
+
+function minimizeToTrayEnabled() {
+  try {
+    return !!settings.readDesktopSettings().minimizeToTray;
+  } catch {
+    return false;
+  }
+}
+
+function isWindowOccluded() {
+  if (!mainWindow || mainWindow.isDestroyed()) return true;
+  if (!mainWindow.isVisible()) return true;
+  if (mainWindow.isMinimized()) return true;
+  try {
+    return !mainWindow.isFocused();
+  } catch {
+    return true;
+  }
+}
+
+function clampWindowBounds(bounds) {
+  if (!bounds || typeof bounds !== "object") return null;
+  const width = Math.max(800, Math.round(Number(bounds.width) || 1080));
+  const height = Math.max(520, Math.round(Number(bounds.height) || 700));
+  let x = Number.isFinite(bounds.x) ? Math.round(bounds.x) : undefined;
+  let y = Number.isFinite(bounds.y) ? Math.round(bounds.y) : undefined;
+  try {
+    const displays = screen.getAllDisplays();
+    if (displays.length && x != null && y != null) {
+      const visible = displays.some((d) => {
+        const b = d.bounds;
+        const cx = x + Math.min(80, width / 2);
+        const cy = y + Math.min(40, height / 2);
+        return cx >= b.x && cy >= b.y && cx < b.x + b.width && cy < b.y + b.height;
+      });
+      if (!visible) {
+        x = undefined;
+        y = undefined;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { x, y, width, height };
+}
+
+function readSavedWindowState() {
+  try {
+    const ds = settings.readDesktopSettings();
+    return {
+      bounds: clampWindowBounds(ds.windowBounds),
+      maximized: !!ds.windowMaximized,
+    };
+  } catch {
+    return { bounds: null, maximized: false };
+  }
+}
+
+function persistWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed() || isQuitting) return;
+  try {
+    const maximized = mainWindow.isMaximized();
+    const bounds = mainWindow.getBounds();
+    settings.writeDesktopSettings({
+      windowMaximized: maximized,
+      windowBounds: maximized
+        ? settings.readDesktopSettings().windowBounds || bounds
+        : bounds,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function schedulePersistWindowState() {
+  if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+  boundsSaveTimer = setTimeout(() => {
+    boundsSaveTimer = null;
+    persistWindowState();
+  }, 350);
+}
+
+function syncLoginItemFromSettings(ds) {
+  try {
+    if (typeof app.setLoginItemSettings !== "function") return;
+    const openAtLogin = !!(ds || settings.readDesktopSettings()).openAtLogin;
+    app.setLoginItemSettings({
+      openAtLogin,
+      openAsHidden: false,
+      path: process.execPath,
+      args: [],
+    });
+  } catch (err) {
+    log(`login item sync failed: ${err.message}`);
+  }
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  try {
+    tray.setContextMenu(buildTrayMenu());
+    updateTrayStatus();
+  } catch {
+    /* ignore */
+  }
+}
+
+function updateTrayStatus(busyCount) {
+  if (typeof busyCount === "number") busyAgentCount = Math.max(0, busyCount);
+  if (!tray) return;
+  const zh = isZh();
+  let tip = "Grok Desktop";
+  if (busyAgentCount > 0) {
+    tip = zh
+      ? `Grok Desktop · ${busyAgentCount} 个任务进行中`
+      : `Grok Desktop · ${busyAgentCount} running`;
+  }
+  try {
+    tray.setToolTip(tip);
+  } catch {
+    /* ignore */
+  }
+}
+
+function setTaskbarWorking(working) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    if (working) {
+      // Indeterminate progress while agent works
+      mainWindow.setProgressBar(2, { mode: "indeterminate" });
+    } else {
+      mainWindow.setProgressBar(-1);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function flashTaskbarIfNeeded() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!isWindowOccluded()) return;
+  try {
+    mainWindow.flashFrame(true);
+  } catch {
+    /* ignore */
+  }
+}
+
+function showMainWindow(opts = {}) {
+  const { sessionId } = opts;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  try {
+    mainWindow?.flashFrame?.(false);
+  } catch {
+    /* ignore */
+  }
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.show();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (sessionId) {
+    send("app:open-session", { sessionId });
+  }
+  return mainWindow;
+}
+
+function hideMainWindowToTray({ silent } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.hide();
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.hide();
+    } catch {
+      /* ignore */
+    }
+  }
+  refreshTrayMenu();
+  if (!silent) {
+    try {
+      const ds = settings.readDesktopSettings();
+      if (!ds.trayHintShown) {
+        settings.writeDesktopSettings({ trayHintShown: true });
+        const zh = isZh();
+        // Short OS toast so users don't think the app crashed
+        if (Notification.isSupported()) {
+          const n = new Notification({
+            title: zh ? "Grok Desktop 仍在运行" : "Grok Desktop is still running",
+            body: zh
+              ? "已最小化到系统托盘。右键托盘图标可退出。"
+              : "Minimized to the system tray. Right-click the tray icon to quit.",
+            silent: true,
+            icon: resolveAppIconPath() || undefined,
+          });
+          n.on("click", () => showMainWindow());
+          n.show();
+        }
+        send("app:tray-hint", { locale: uiLocale() });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function quitApp() {
+  isQuitting = true;
+  persistWindowState();
+  app.quit();
+}
+
+function sendAppCommand(command, payload) {
+  showMainWindow();
+  send("app:command", { command, ...(payload || {}) });
+}
+
+function buildTrayMenu() {
+  const zh = isZh();
+  const busyLabel =
+    busyAgentCount > 0
+      ? zh
+        ? `运行中 · ${busyAgentCount}`
+        : `Running · ${busyAgentCount}`
+      : zh
+        ? "空闲"
+        : "Idle";
+  return Menu.buildFromTemplate([
+    { label: `Grok Desktop  v${DESKTOP_VERSION}`, enabled: false },
+    { label: busyLabel, enabled: false },
+    { type: "separator" },
+    {
+      label: zh ? "显示窗口" : "Show window",
+      click: () => showMainWindow(),
+    },
+    {
+      label: zh ? "新建会话" : "New session",
+      click: () => sendAppCommand("new-session"),
+    },
+    {
+      label: zh ? "设置" : "Settings",
+      click: () => sendAppCommand("open-settings"),
+    },
+    { type: "separator" },
+    {
+      label: zh ? "退出 Grok Desktop" : "Quit Grok Desktop",
+      click: () => quitApp(),
+    },
+  ]);
+}
+
+function createTray() {
+  if (tray) return tray;
+  const image = resolveTrayImage();
+  try {
+    tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
+  } catch (err) {
+    log(`tray create failed: ${err.message}`);
+    tray = null;
+    return null;
+  }
+  tray.setToolTip("Grok Desktop");
+  tray.setContextMenu(buildTrayMenu());
+  tray.on("click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      showMainWindow();
+      return;
+    }
+    if (mainWindow.isVisible() && mainWindow.isFocused()) {
+      if (closeToTrayEnabled()) hideMainWindowToTray();
+      else mainWindow.minimize();
+    } else {
+      showMainWindow();
+    }
+  });
+  tray.on("double-click", () => showMainWindow());
+  return tray;
+}
+
+function destroyTray() {
+  if (tray) {
+    try {
+      tray.destroy();
+    } catch {
+      /* ignore */
+    }
+    tray = null;
+  }
+}
+
+function buildAppMenu() {
+  const zh = isZh();
+  const isMac = process.platform === "darwin";
+  const fileMenu = {
+    label: zh ? "文件" : "File",
+    submenu: [
+      {
+        label: zh ? "新建会话" : "New Session",
+        accelerator: "CmdOrCtrl+N",
+        click: () => sendAppCommand("new-session"),
+      },
+      {
+        label: zh ? "设置" : "Settings",
+        accelerator: "CmdOrCtrl+,",
+        click: () => sendAppCommand("open-settings"),
+      },
+      { type: "separator" },
+      isMac
+        ? { role: "close", label: zh ? "关闭窗口" : "Close Window" }
+        : {
+            label: zh ? "隐藏到托盘" : "Hide to Tray",
+            accelerator: "CmdOrCtrl+H",
+            click: () => {
+              if (closeToTrayEnabled()) hideMainWindowToTray();
+              else mainWindow?.minimize();
+            },
+          },
+      {
+        label: zh ? "退出" : "Quit",
+        accelerator: isMac ? "Cmd+Q" : "Ctrl+Q",
+        click: () => quitApp(),
+      },
+    ],
+  };
+  const editMenu = {
+    label: zh ? "编辑" : "Edit",
+    submenu: [
+      { role: "undo", label: zh ? "撤销" : "Undo" },
+      { role: "redo", label: zh ? "重做" : "Redo" },
+      { type: "separator" },
+      { role: "cut", label: zh ? "剪切" : "Cut" },
+      { role: "copy", label: zh ? "复制" : "Copy" },
+      { role: "paste", label: zh ? "粘贴" : "Paste" },
+      { role: "selectAll", label: zh ? "全选" : "Select All" },
+    ],
+  };
+  const viewMenu = {
+    label: zh ? "查看" : "View",
+    submenu: [
+      {
+        label: zh ? "切换计划面板" : "Toggle Plan Panel",
+        accelerator: "CmdOrCtrl+P",
+        click: () => sendAppCommand("toggle-plan"),
+      },
+      { type: "separator" },
+      { role: "reload", label: zh ? "重新加载" : "Reload" },
+      { role: "toggleDevTools", label: zh ? "开发者工具" : "Toggle Developer Tools" },
+      { type: "separator" },
+      { role: "resetZoom", label: zh ? "实际大小" : "Actual Size" },
+      { role: "zoomIn", label: zh ? "放大" : "Zoom In" },
+      { role: "zoomOut", label: zh ? "缩小" : "Zoom Out" },
+      { type: "separator" },
+      { role: "togglefullscreen", label: zh ? "全屏" : "Toggle Full Screen" },
+    ],
+  };
+  const helpMenu = {
+    label: zh ? "帮助" : "Help",
+    submenu: [
+      {
+        label: zh ? "检查更新" : "Check for Updates",
+        click: () => sendAppCommand("check-update"),
+      },
+      {
+        label: zh ? "打开发布页" : "Open Releases",
+        click: () => shell.openExternal(RELEASES_URL),
+      },
+      {
+        label: zh ? "GitHub 仓库" : "GitHub Repository",
+        click: () => shell.openExternal(REPO_URL),
+      },
+      { type: "separator" },
+      {
+        label: zh ? `关于 Grok Desktop ${DESKTOP_VERSION}` : `About Grok Desktop ${DESKTOP_VERSION}`,
+        click: () => sendAppCommand("open-about"),
+      },
+    ],
+  };
+  const template = [];
+  if (isMac) {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: "about", label: zh ? "关于 Grok Desktop" : "About Grok Desktop" },
+        { type: "separator" },
+        {
+          label: zh ? "设置" : "Settings",
+          accelerator: "CmdOrCtrl+,",
+          click: () => sendAppCommand("open-settings"),
+        },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit", label: zh ? "退出" : "Quit" },
+      ],
+    });
+  }
+  template.push(fileMenu, editMenu, viewMenu, helpMenu);
+  return Menu.buildFromTemplate(template);
+}
+
+function installAppMenu() {
+  try {
+    Menu.setApplicationMenu(buildAppMenu());
+  } catch (err) {
+    log(`menu install failed: ${err.message}`);
+  }
+}
 
 function createWindow() {
-  // Compact default size — fits a normal laptop without dominating the screen
-  mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 700,
+  const iconPath = resolveAppIconPath();
+  const saved = readSavedWindowState();
+  const b = saved.bounds || {};
+  const winOpts = {
+    width: b.width || 1080,
+    height: b.height || 700,
     minWidth: 800,
     minHeight: 520,
     title: "Grok Desktop",
-    icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
+    icon: iconPath || undefined,
     backgroundColor: "#0b0b0c",
     show: false,
-    // macOS: hide native title bar but keep traffic lights; drag surface is CSS -webkit-app-region
+    autoHideMenuBar: process.platform === "win32",
+    // macOS: hide native title bar but keep traffic lights; drag via CSS -webkit-app-region
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition: process.platform === "darwin" ? { x: 14, y: 14 } : undefined,
+    backgroundMaterial: process.platform === "win32" ? "none" : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -119,42 +643,65 @@ function createWindow() {
       sandbox: false,
       webSecurity: true,
     },
-  });
-
-  mainWindow.setMovable(true);
-
-  // macOS hiddenInset has no native title-bar drag surface.
-  // Inject drag CSS from main so it cannot be skipped by renderer class timing / cache.
-  if (process.platform === "darwin") {
-    const dragCss = `
-      #window-drag-strip,
-      .brand, .brand *,
-      .topbar, .page-header, .session-tabs {
-        -webkit-app-region: drag !important;
-      }
-      button, input, textarea, select, a, label,
-      .btn, .icon-btn, .rail-item, .status, .switch,
-      .session-actions, .page-actions, .topbar-right,
-      .search-box, .session-list, .settings-search, .settings-nav-scroll {
-        -webkit-app-region: no-drag !important;
-      }
-      .brand { padding-top: 42px !important; }
-      #app.settings-mode .settings-rail { padding-top: 36px !important; }
-      #window-drag-strip {
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        height: 28px;
-        z-index: 9999;
-        -webkit-app-region: drag !important;
-      }
-    `;
-    mainWindow.webContents.on("did-finish-load", () => {
-      mainWindow.webContents.insertCSS(dragCss).catch(() => {});
-    });
+  };
+  if (Number.isFinite(b.x) && Number.isFinite(b.y)) {
+    winOpts.x = b.x;
+    winOpts.y = b.y;
   }
 
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow = new BrowserWindow(winOpts);
+
+  // Windows 11: prefer dark window controls to match in-app chrome
+  if (process.platform === "win32") {
+    try {
+      if (typeof mainWindow.setTitleBarOverlay === "function") {
+        // only applies with hidden title bar; safe no-op otherwise
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  mainWindow.once("ready-to-show", () => {
+    if (saved.maximized) {
+      try {
+        mainWindow.maximize();
+      } catch {
+        /* ignore */
+      }
+    }
+    mainWindow.show();
+  });
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
+
+  mainWindow.on("resize", schedulePersistWindowState);
+  mainWindow.on("move", schedulePersistWindowState);
+  mainWindow.on("maximize", schedulePersistWindowState);
+  mainWindow.on("unmaximize", schedulePersistWindowState);
+  mainWindow.on("focus", () => {
+    try {
+      mainWindow.flashFrame(false);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  mainWindow.on("minimize", (e) => {
+    if (isQuitting || !minimizeToTrayEnabled() || !closeToTrayEnabled()) return;
+    e.preventDefault();
+    hideMainWindowToTray();
+  });
+
+  // Close → tray. Real exit only via tray Quit / menu Quit / isQuitting.
+  mainWindow.on("close", (e) => {
+    if (isQuitting || !closeToTrayEnabled()) {
+      persistWindowState();
+      return;
+    }
+    e.preventDefault();
+    hideMainWindowToTray();
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -167,38 +714,37 @@ function createWindow() {
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (e, url) => {
-    // Keep app on file:// UI; open external http(s) outside
     if (/^https?:\/\//i.test(url)) {
       e.preventDefault();
       shell.openExternal(url).catch(() => {});
     }
   });
 
-  // Native right-click: 复制 / 粘贴 / 剪切 / 全选（输入框与选中文本）
+  // Native right-click context menu (localized)
   mainWindow.webContents.on("context-menu", (_e, params) => {
+    const zh = isZh();
     const template = [];
     if (params.isEditable) {
       template.push(
-        { role: "undo", label: "撤销" },
-        { role: "redo", label: "重做" },
+        { role: "undo", label: zh ? "撤销" : "Undo" },
+        { role: "redo", label: zh ? "重做" : "Redo" },
         { type: "separator" },
-        { role: "cut", label: "剪切", enabled: params.editFlags?.canCut !== false },
-        { role: "copy", label: "复制", enabled: params.editFlags?.canCopy !== false },
-        { role: "paste", label: "粘贴", enabled: params.editFlags?.canPaste !== false },
-        { role: "selectAll", label: "全选" },
+        { role: "cut", label: zh ? "剪切" : "Cut", enabled: params.editFlags?.canCut !== false },
+        { role: "copy", label: zh ? "复制" : "Copy", enabled: params.editFlags?.canCopy !== false },
+        { role: "paste", label: zh ? "粘贴" : "Paste", enabled: params.editFlags?.canPaste !== false },
+        { role: "selectAll", label: zh ? "全选" : "Select All" },
       );
     } else if (params.selectionText && params.selectionText.trim()) {
-      template.push({ role: "copy", label: "复制" });
+      template.push({ role: "copy", label: zh ? "复制" : "Copy" });
       template.push({
-        label: "复制并粘贴到输入框",
+        label: zh ? "复制并粘贴到输入框" : "Copy & paste into composer",
         click: () => {
           mainWindow.webContents.send("chat:insert-text", params.selectionText);
         },
       });
     } else {
-      // empty area in chat — still offer paste into composer when possible
       template.push({
-        label: "粘贴到输入框",
+        label: zh ? "粘贴到输入框" : "Paste into composer",
         click: () => {
           mainWindow.webContents.send("chat:paste-request");
         },
@@ -426,127 +972,53 @@ function registerAgent(sessionId, client, cwd, meta) {
 
 // Linux taskbar / .desktop StartupWMClass friendliness
 app.setName("Grok Desktop");
-
-/**
- * macOS needs a real application menu so system edit accelerators work
- * (Cmd+C / Cmd+V / Cmd+A / Cmd+Z). Without it, Electron often ignores them.
- */
-function installApplicationMenu() {
-  const isMac = process.platform === "darwin";
-  const template = [
-    ...(isMac
-      ? [
-          {
-            label: app.name,
-            submenu: [
-              { role: "about", label: `关于 ${app.name}` },
-              { type: "separator" },
-              { role: "services", label: "服务" },
-              { type: "separator" },
-              { role: "hide", label: `隐藏 ${app.name}` },
-              { role: "hideOthers", label: "隐藏其他" },
-              { role: "unhide", label: "全部显示" },
-              { type: "separator" },
-              { role: "quit", label: `退出 ${app.name}` },
-            ],
-          },
-        ]
-      : []),
-    {
-      label: "编辑",
-      submenu: [
-        { role: "undo", label: "撤销" },
-        { role: "redo", label: "重做" },
-        { type: "separator" },
-        { role: "cut", label: "剪切" },
-        { role: "copy", label: "复制" },
-        { role: "paste", label: "粘贴" },
-        ...(isMac
-          ? [{ role: "pasteAndMatchStyle", label: "粘贴并匹配样式" }, { role: "delete", label: "删除" }]
-          : [{ role: "delete", label: "删除" }]),
-        { role: "selectAll", label: "全选" },
-      ],
-    },
-    {
-      label: "查看",
-      submenu: [
-        { role: "reload", label: "重新加载" },
-        { role: "forceReload", label: "强制重新加载" },
-        { role: "toggleDevTools", label: "开发者工具" },
-        { type: "separator" },
-        { role: "resetZoom", label: "实际大小" },
-        { role: "zoomIn", label: "放大" },
-        { role: "zoomOut", label: "缩小" },
-        { type: "separator" },
-        { role: "togglefullscreen", label: "进入全屏幕" },
-      ],
-    },
-    {
-      label: "窗口",
-      submenu: [
-        { role: "minimize", label: "最小化" },
-        { role: "zoom", label: "缩放" },
-        ...(isMac
-          ? [{ type: "separator" }, { role: "front", label: "前置全部窗口" }]
-          : [{ role: "close", label: "关闭" }]),
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-app.whenReady().then(() => {
-  try {
-    installApplicationMenu();
-  } catch (err) {
-    console.error("menu install failed", err);
-  }
-  if (process.platform === "darwin") {
-    try {
-      app.setAboutPanelOptions({
-        applicationName: "Grok Desktop",
-        applicationVersion: DESKTOP_VERSION,
-        version: DESKTOP_VERSION,
-        copyright: "Copyright © 2026",
-      });
-    } catch {
-      /* ignore */
-    }
-    if (fs.existsSync(APP_ICON) && app.dock?.setIcon) {
-      try {
-        app.dock.setIcon(APP_ICON);
-      } catch {
-        /* packaged .icns already set */
-      }
-    }
-  } else if (process.platform === "linux" && fs.existsSync(APP_ICON)) {
+if (process.platform === "linux" && fs.existsSync(APP_ICON)) {
+  // Helps some desktops associate the running window with our icon
+  app.whenReady().then(() => {
     try {
       if (app.dock?.setIcon) app.dock.setIcon(APP_ICON);
     } catch {
       /* ignore */
     }
-  }
+  });
+}
 
-  createWindow();
-  app.on("activate", () => {
-    // Dock click: recreate if fully closed, otherwise bring existing window forward
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (gotSingleInstanceLock) {
+  app.on("second-instance", () => {
+    showMainWindow();
+  });
+
+  app.whenReady().then(() => {
+    installAppMenu();
+    syncLoginItemFromSettings();
+    createTray();
+    createWindow();
+    app.on("activate", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+      else showMainWindow();
+    });
+  });
+
+  // With tray + close-to-tray, an empty window list means we are hidden, not done.
+  app.on("window-all-closed", () => {
+    if (isQuitting) {
+      disposeAllAgents();
       return;
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+    if (closeToTrayEnabled() && tray) {
+      return;
     }
+    disposeAllAgents();
+    if (process.platform !== "darwin") app.quit();
   });
-});
 
-app.on("window-all-closed", () => {
-  disposeAllAgents();
-  if (process.platform !== "darwin") app.quit();
-});
-app.on("before-quit", () => disposeAllAgents());
+  app.on("before-quit", () => {
+    isQuitting = true;
+    persistWindowState();
+    disposeAllAgents();
+    destroyTray();
+  });
+}
 
 // ── Sessions ───────────────────────────────────────────
 
@@ -1037,7 +1509,24 @@ ipcMain.handle("settings:get", async () => {
 });
 
 ipcMain.handle("settings:saveDesktop", async (_e, partial) => {
-  return settings.writeDesktopSettings(partial || {});
+  const next = settings.writeDesktopSettings(partial || {});
+  // Keep OS + chrome in sync when desktop prefs change
+  if (
+    partial &&
+    ("openAtLogin" in partial ||
+      "locale" in partial ||
+      "closeToTray" in partial ||
+      "minimizeToTray" in partial)
+  ) {
+    if ("openAtLogin" in partial) syncLoginItemFromSettings(next);
+    if ("locale" in partial) {
+      installAppMenu();
+      refreshTrayMenu();
+    } else {
+      refreshTrayMenu();
+    }
+  }
+  return next;
 });
 
 /** 内置壁纸绝对路径（打包后在 app 目录 assets/wallpapers） */
@@ -1258,7 +1747,32 @@ ipcMain.handle("app:info", async () => ({
   memoryEnabled: memory.isEnabledInConfig(),
   openAgents: agents.size,
   platform: process.platform,
+  closeToTray: closeToTrayEnabled(),
+  openAtLogin: !!settings.readDesktopSettings().openAtLogin,
 }));
+
+/** Whether the main window is unfocused / hidden (for completion notify) */
+ipcMain.handle("app:isOccluded", async () => isWindowOccluded());
+
+/** Taskbar / tray busy indicator from renderer */
+ipcMain.handle("app:setBusyCount", async (_e, count) => {
+  const n = Math.max(0, Number(count) || 0);
+  updateTrayStatus(n);
+  setTaskbarWorking(n > 0);
+  return { ok: true, count: n };
+});
+
+/** Flash taskbar when work finishes in background */
+ipcMain.handle("app:flashFrame", async (_e, on = true) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+  try {
+    if (on) flashTaskbarIfNeeded();
+    else mainWindow.flashFrame(false);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+});
 
 /** 环境诊断：CLI 是否存在、是否像已登录 */
 ipcMain.handle("app:diagnose", async () => {
@@ -1335,21 +1849,29 @@ ipcMain.handle("shell:openExternal", async (_e, url) => {
 });
 
 /** 系统通知（后台会话完成等） */
-ipcMain.handle("app:notify", async (_e, { title, body } = {}) => {
+ipcMain.handle("app:notify", async (_e, { title, body, sessionId } = {}) => {
   try {
     if (!Notification.isSupported()) return { ok: false, reason: "unsupported" };
+    const iconPath = resolveAppIconPath();
     const n = new Notification({
-      title: title || "Grok 桌面版",
+      title: title || "Grok Desktop",
       body: body || "",
       silent: false,
+      icon: iconPath || undefined,
     });
     n.on("click", () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
+      showMainWindow(sessionId ? { sessionId } : {});
     });
     n.show();
+    flashTaskbarIfNeeded();
+    if (tray) {
+      try {
+        tray.setToolTip(`${title || "Grok Desktop"}${body ? ` — ${body}` : ""}`);
+        setTimeout(() => updateTrayStatus(), 8000);
+      } catch {
+        /* ignore */
+      }
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: err.message };

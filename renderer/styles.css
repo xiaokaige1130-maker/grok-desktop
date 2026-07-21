@@ -35,66 +35,6 @@ body.compact { font-size: 12.5px; }
 
 #app { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
 
-/*
- * Window drag for custom title bars (macOS hiddenInset; also harmless on Win/Linux).
- * Apply on the region AND descendants — some Chromium builds only hit-test children.
- * Interactive controls must be no-drag or clicks will be swallowed as window moves.
- */
-#window-drag-strip {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 28px;
-  z-index: 9999;
-  -webkit-app-region: drag;
-  pointer-events: auto;
-}
-.brand,
-.brand *,
-.topbar,
-.page-header,
-.session-tabs,
-#app.settings-mode .settings-rail {
-  -webkit-app-region: drag;
-}
-button,
-input,
-textarea,
-select,
-a,
-label,
-.btn,
-.icon-btn,
-.rail-item,
-.status,
-.switch,
-.session-actions,
-.page-actions,
-.topbar-right,
-.search-box,
-.session-list,
-.settings-search,
-.settings-nav-scroll,
-.session-tabs button,
-.session-tabs .tab,
-.session-tabs [role="tab"] {
-  -webkit-app-region: no-drag;
-}
-/* Traffic lights sit over the left edge — clear space so brand / settings don't collide */
-body.platform-darwin .brand {
-  padding-top: 42px;
-}
-body.platform-darwin #app.settings-mode .settings-rail {
-  padding-top: 36px;
-}
-/* Keep top-right controls above the fixed drag strip */
-.topbar-right,
-.page-actions {
-  position: relative;
-  z-index: 10000;
-}
-
 /* ── Sidebar ── */
 #sidebar {
   flex: 0 0 var(--side-w);
@@ -111,12 +51,12 @@ body.platform-darwin #app.settings-mode .settings-rail {
   padding: 16px 16px 12px; flex: 0 0 auto;
 }
 .brand-mark {
-  width: 28px; height: 28px; border-radius: 8px;
-  object-fit: contain;
+  width: 36px; height: 36px; border-radius: 10px;
+  object-fit: cover;
   display: block;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  background: transparent;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  background: #111;
 }
 .brand-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
 .brand-tag { font-size: 11px; color: var(--dim); margin-top: 1px; }
@@ -725,9 +665,15 @@ body.platform-darwin #app.settings-mode .settings-rail {
 
 .topbar, .page-header {
   flex: 0 0 auto;
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; padding: 16px 28px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 28px 12px;
   border-bottom: 1px solid transparent;
+}
+.topbar-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 .topbar-left, .page-header > div:first-child { min-width: 0; }
 #chat-title, .page-header h1 {
@@ -738,20 +684,155 @@ body.platform-darwin #app.settings-mode .settings-rail {
   margin: 4px 0 0; font-size: 12.5px; color: var(--dim); line-height: 1.4;
 }
 .topbar-right, .page-actions {
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.session-actions { display: flex; gap: 6px; }
-.session-actions.hidden { display: none; }
+
+/* Unified session toolbar (plan / export / rename / delete) */
+.session-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.session-toolbar.hidden { display: none; }
+.session-actions { display: none; } /* legacy class no longer used */
+
+.tb-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.tb-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.tb-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.tb-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.55);
+  outline-offset: 1px;
+}
+.tb-btn .tb-ico {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  opacity: 0.88;
+  flex-shrink: 0;
+}
+.tb-btn .tb-ico svg { display: block; }
+.tb-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+  flex-shrink: 0;
+}
+.tb-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.28);
+  color: #ddd6fe;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.tb-badge.hidden { display: none !important; }
+.tb-badge.done {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+}
+/* Plan toggle — same family, accent when open / has items */
+#btn-plan-toggle.active {
+  background: rgba(139, 92, 246, 0.18);
+  color: #e9e5ff;
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.35);
+}
+#btn-plan-toggle.has-plan:not(.active) {
+  color: var(--text);
+}
+#btn-plan-toggle.has-plan .tb-badge:not(.hidden) {
+  background: rgba(139, 92, 246, 0.35);
+}
+.tb-btn.tb-danger {
+  color: var(--muted);
+}
+.tb-btn.tb-danger:hover {
+  background: rgba(251, 113, 133, 0.12);
+  color: #fda4af;
+}
 
 .status {
   font-size: 11px; color: var(--muted);
-  padding: 5px 10px; border-radius: 999px;
+  padding: 6px 11px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--panel);
+  font-weight: 550;
+  letter-spacing: 0.01em;
 }
 .status[data-state="ready"] { color: var(--ok); border-color: rgba(74,222,128,.25); }
 .status[data-state="working"],
 .status[data-state="connecting"] { color: var(--warn); border-color: rgba(251,191,36,.25); }
 .status[data-state="error"] { color: var(--err); border-color: rgba(251,113,133,.3); }
+
+/* Compact topbar actions on narrow widths */
+@media (max-width: 1100px) {
+  .tb-btn span:not(.tb-ico):not(.tb-badge) {
+    /* keep labels — product clarity over pure icons */
+  }
+}
+@media (max-width: 920px) {
+  .tb-btn > span:not(.tb-ico):not(.tb-badge) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .tb-btn {
+    width: 30px;
+    padding: 0;
+    position: relative;
+  }
+  .tb-badge {
+    position: absolute;
+    top: 2px;
+    right: 1px;
+    min-width: 14px;
+    height: 14px;
+    font-size: 9px;
+  }
+}
 
 /* Thread + wallpaper shell */
 .thread-shell {
@@ -1340,43 +1421,15 @@ body.platform-darwin #app.settings-mode .settings-rail {
 .plan-item .p-status.pending { color: var(--dim); }
 .plan-item .p-content { flex: 1; color: var(--text); min-width: 0; word-break: break-word; }
 
-/* Topbar plan button — always discoverable when a session is open */
-.plan-btn {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(139, 92, 246, 0.4) !important;
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(99, 102, 241, 0.08)) !important;
-  color: #e9e5ff !important;
-  font-weight: 600;
-  padding: 6px 12px !important;
-  border-radius: 999px !important;
-  position: relative;
-}
-.plan-btn:hover {
-  filter: brightness(1.08);
-  border-color: rgba(167, 139, 250, 0.65) !important;
-}
-.plan-btn.active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(99, 102, 241, 0.2)) !important;
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.35);
-}
-.plan-btn.has-plan {
-  border-color: rgba(74, 222, 128, 0.45) !important;
-}
-.plan-btn-ico {
-  font-size: 12px;
-  opacity: 0.9;
-  line-height: 1;
-}
-.plan-badge {
-  min-width: 18px;
-  height: 18px;
+/* legacy plan-badge class → shared with toolbar badge */
+.plan-badge { /* kept as alias for any residual refs */
+  min-width: 16px;
+  height: 16px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10.5px;
+  background: rgba(139, 92, 246, 0.28);
+  color: #ddd6fe;
+  font-size: 10px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -1386,7 +1439,7 @@ body.platform-darwin #app.settings-mode .settings-rail {
 }
 .plan-badge.hidden { display: none !important; }
 .plan-badge.done {
-  background: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.2);
   color: #86efac;
 }
 
@@ -1404,19 +1457,6 @@ body.platform-darwin #app.settings-mode .settings-rail {
 .access-chip.mode-safe { border-color: rgba(251, 191, 36, 0.4); color: #fde68a; }
 .access-chip.mode-balanced { border-color: rgba(139, 92, 246, 0.4); color: #c4b5fd; }
 .access-chip.mode-full { border-color: rgba(74, 222, 128, 0.35); color: #86efac; }
-
-.strip-link {
-  border: 0;
-  background: transparent;
-  color: #a5b4fc;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0;
-}
-.strip-link:hover { text-decoration: underline; }
-.strip-link.has-plan { color: var(--ok); }
-.plan-dot.hidden { display: none; }
 
 /* Access mode cards in settings */
 .mode-cards {
