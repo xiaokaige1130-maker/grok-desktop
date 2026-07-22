@@ -52,7 +52,8 @@
       "scripts/install-desktop.sh",
       "scripts/smoke-test.js",
       "README.md",
-      "CHANGELOG.md"
+      "CHANGELOG.md",
+      "node_modules/bootstrap/dist/**/*"
     ],
     "extraMetadata": {
       "main": "main.js"
@@ -163,5 +164,8 @@
       "artifactName": "Grok-Desktop-${version}-macOS-${arch}.dmg",
       "title": "Grok Desktop ${version}"
     }
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.8"
   }
 }

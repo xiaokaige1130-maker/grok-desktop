@@ -8,6 +8,7 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Grok Desktop</title>
+    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -47,11 +48,13 @@
             <span data-i18n="nav.recent">最近会话</span>
             <button type="button" id="btn-refresh" class="icon-btn" data-i18n-title="nav.refresh" title="刷新列表">↻</button>
           </div>
-          <label class="search-box" for="search">
-            <span>⌕</span>
-            <input id="search" type="search" data-i18n-placeholder="nav.searchPh" placeholder="搜索标题 / 全文…" autocomplete="off" />
-          </label>
-          <div id="search-hits" class="search-hits hidden" role="list"></div>
+          <div class="search-wrap">
+            <label class="search-box" for="search">
+              <span>⌕</span>
+              <input id="search" type="search" data-i18n-placeholder="nav.searchPh" placeholder="搜索标题 / 全文…" autocomplete="off" />
+            </label>
+            <div id="search-hits" class="search-hits hidden" role="list"></div>
+          </div>
           <div id="session-list" class="session-list" role="list"></div>
         </div>
 
@@ -128,16 +131,6 @@
             <span id="strip-queue" class="hidden">队列 0</span>
           </div>
 
-          <!-- Goal / Loop visibility (desktop-tracked after slash) -->
-          <div id="auto-bar" class="auto-bar hidden" role="status">
-            <span class="auto-bar-ico" aria-hidden="true">⟳</span>
-            <span id="auto-bar-text" class="auto-bar-text">—</span>
-            <div class="auto-bar-actions">
-              <button type="button" class="btn ghost" id="auto-bar-status" data-i18n="auto.bar.status">查状态</button>
-              <button type="button" class="btn ghost" id="auto-bar-clear" data-i18n="auto.bar.dismiss">隐藏</button>
-            </div>
-          </div>
-
           <div class="chat-body">
             <div class="thread-shell">
               <div id="thread-bg" class="thread-bg" aria-hidden="true"></div>
@@ -149,18 +142,15 @@
               </div>
             </div>
 
-            <aside id="plan-panel" class="plan-panel hidden" aria-label="执行计划">
-              <div class="plan-panel-head">
-                <div class="plan-panel-title">
-                  <strong data-i18n="chat.planTitle">执行计划</strong>
-                  <span class="plan-progress hidden" id="plan-progress"></span>
-                </div>
-                <button type="button" class="icon-btn" id="btn-plan-close" data-i18n-title="chat.planClose" title="关闭计划面板">✕</button>
+            <!-- Goal / Loop chip — overlay, does not push thread -->
+            <div id="auto-bar" class="auto-bar hidden" role="status">
+              <span class="auto-bar-ico" aria-hidden="true">⟳</span>
+              <span id="auto-bar-text" class="auto-bar-text">—</span>
+              <div class="auto-bar-actions">
+                <button type="button" class="btn ghost" id="auto-bar-status" data-i18n="auto.bar.status">查状态</button>
+                <button type="button" class="btn ghost" id="auto-bar-clear" data-i18n="auto.bar.dismiss">隐藏</button>
               </div>
-              <div id="plan-list" class="plan-list">
-                <div class="plan-empty" data-i18n="chat.planEmpty">尚无计划条目。助手进入计划模式后会出现在这里。</div>
-              </div>
-            </aside>
+            </div>
           </div>
 
           <div id="composer-dock">
@@ -172,12 +162,20 @@
                 id="input"
                 rows="1"
                 data-i18n-placeholder="chat.inputPh"
-                placeholder="消息 · 拖入图片 · / 命令 · @ 文件… Enter 发送"
+                placeholder="消息 · 拖入图片 · / 命令 · + 附加文件… Enter 发送"
                 disabled
               ></textarea>
               <div class="composer-bar">
                 <div class="composer-left">
-                  <button type="button" id="btn-file" class="icon-btn" data-i18n-title="chat.attachFile" title="附加文件 @" disabled>@</button>
+                  <button type="button" id="btn-file" class="btn-attach-plus" data-i18n-title="chat.attachFile" title="附加文件" disabled aria-label="附加文件">+</button>
+                  <div class="model-wrap mode-wrap">
+                    <div id="mode-popover" class="model-popover mode-popover hidden" role="listbox" aria-label="工作模式"></div>
+                    <button type="button" id="btn-mode" class="btn-work-mode" data-mode="task" title="工作模式" data-i18n-title="mode.btnTitle">
+                      <span class="mode-ico" id="mode-ico" aria-hidden="true">⚡</span>
+                      <span id="mode-label" data-i18n="mode.taskShort">任务</span>
+                      <span class="caret">▾</span>
+                    </button>
+                  </div>
                   <span id="cwd-chip" class="chip" data-i18n="chat.noCwd">未选择工作目录</span>
                 </div>
                 <div class="composer-right">
@@ -185,13 +183,6 @@
                     <div id="effort-popover" class="model-popover hidden" role="listbox"></div>
                     <button type="button" id="btn-effort" class="btn-model" disabled title="推理强度">
                       <span id="effort-label" data-i18n="chat.effort">强度</span>
-                      <span class="caret">▴</span>
-                    </button>
-                  </div>
-                  <div class="model-wrap">
-                    <div id="mode-popover" class="model-popover hidden" role="listbox" aria-label="工作模式"></div>
-                    <button type="button" id="btn-mode" class="btn-model" title="工作模式" data-i18n-title="mode.btnTitle">
-                      <span id="mode-label" data-i18n="mode.taskShort">任务</span>
                       <span class="caret">▴</span>
                     </button>
                   </div>
@@ -803,6 +794,33 @@
       <button type="button" class="btn ghost" id="update-banner-dismiss" data-i18n="update.dismiss">关闭</button>
     </div>
 
+    <!-- Plan panel — Bootstrap Offcanvas (UI component, no layout impact) -->
+    <div
+      class="offcanvas offcanvas-end plan-offcanvas"
+      tabindex="-1"
+      id="plan-panel"
+      aria-labelledby="plan-panel-label"
+    >
+      <div class="offcanvas-header plan-panel-head">
+        <div class="plan-panel-title">
+          <h2 class="offcanvas-title" id="plan-panel-label" data-i18n="chat.planTitle">执行计划</h2>
+          <span class="plan-progress hidden" id="plan-progress"></span>
+        </div>
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          id="btn-plan-close"
+          data-bs-dismiss="offcanvas"
+          data-i18n-title="chat.planClose"
+          title="关闭计划面板"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="offcanvas-body plan-list" id="plan-list">
+        <div class="plan-empty" data-i18n="chat.planEmpty">尚无计划条目。助手进入计划模式后会出现在这里。</div>
+      </div>
+    </div>
+
     <!-- App modal (Electron has no window.prompt) -->
     <div id="app-modal" class="app-modal hidden" role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
       <div class="app-modal-backdrop" data-modal-cancel></div>
@@ -833,6 +851,7 @@
       <button type="button" class="ctx-item danger" data-act="delete" role="menuitem">删除</button>
     </div>
 
+    <script src="../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="time-format.js"></script>
     <script src="i18n.js"></script>
     <script src="app.js"></script>

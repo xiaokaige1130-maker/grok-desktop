@@ -735,9 +735,20 @@ function refreshSendButtonState() {
   }
   if (ui.cancel) ui.cancel.disabled = !agentBusy;
   if (ui.input) {
-    ui.input.placeholder = agentBusy
-      ? "写纠正… Enter 先排队，点「引导」才打断发送"
-      : "消息 · 拖入图片 · / 命令 · @ 文件… Enter 发送";
+    if (agentBusy) {
+      ui.input.placeholder = "写纠正… Enter 先排队，点「引导」才打断发送";
+    } else if (composerMode === "goal") {
+      ui.input.placeholder =
+        typeof t === "function" ? t("mode.goalInputPh") : "描述目标，直接发送（无需 /goal）";
+    } else if (composerMode === "plan") {
+      ui.input.placeholder =
+        typeof t === "function" ? t("mode.planInputPh") : "描述要规划的事项…";
+    } else {
+      ui.input.placeholder =
+        typeof t === "function"
+          ? t("chat.inputPh")
+          : "消息 · 拖入图片 · / 命令 · + 附加文件… Enter 发送";
+    }
   }
   $("composer")?.classList.toggle("is-busy", !!agentBusy);
 }
@@ -762,10 +773,11 @@ function setComposerEnabled(on) {
  * 任务进行中：Enter → 只排队（不打断）。
  * 点排队气泡上的「引导」→ 打断并立刻发送。
  */
-function enqueueFollowUp({ text, images, files }) {
+function enqueueFollowUp({ text, images, files, displayText = null }) {
   if (!activeId) return false;
   const item = {
     text: text || "",
+    displayText: displayText != null ? displayText : text || "",
     images: (images || []).slice(),
     files: (files || []).slice(),
   };
@@ -836,10 +848,13 @@ function rerenderQueuedTurns() {
         addImgToMediaRow(media, img.dataUrl || img, img.key || img.dataUrl || `q-${idx}`);
       }
     }
-    if (item.text) {
+    const shown = (item.displayText != null && item.displayText !== ""
+      ? item.displayText
+      : item.text) || "";
+    if (shown) {
       const body = document.createElement("div");
       body.className = "body";
-      body.textContent = item.text;
+      body.textContent = shown;
       turn.appendChild(body);
     }
     ui.inner.appendChild(turn);
@@ -854,6 +869,7 @@ async function guideSendFromQueue(idx) {
   // 取出这一条，其余排队保留还是全清？用户确认后再发 → 引导 = 发这一条并清空排队
   const payload = {
     text: item.text || "",
+    displayText: item.displayText != null ? item.displayText : item.text || "",
     images: (item.images || []).slice(),
     files: (item.files || []).slice(),
   };
@@ -2185,12 +2201,50 @@ function renderPlan(planData) {
   }
 }
 
-function setPlanOpen(on) {
-  planOpen = !!on;
-  ui.planPanel?.classList.toggle("hidden", !planOpen);
-  ui.planToggle?.classList.toggle("active", planOpen);
+/** Bootstrap Offcanvas instance for the plan panel */
+let planOffcanvas = null;
+
+function getPlanOffcanvas() {
+  const el = ui.planPanel || $("plan-panel");
+  if (!el) return null;
+  const BS = typeof bootstrap !== "undefined" ? bootstrap : window.bootstrap;
+  if (!BS?.Offcanvas) return null;
+  if (!planOffcanvas) {
+    planOffcanvas = BS.Offcanvas.getOrCreateInstance(el, {
+      backdrop: true,
+      keyboard: true,
+      scroll: true, // do not lock / pad body — layout stays put
+    });
+    el.addEventListener("shown.bs.offcanvas", () => {
+      planOpen = true;
+      ui.planToggle?.classList.add("active");
+    });
+    el.addEventListener("hidden.bs.offcanvas", () => {
+      planOpen = false;
+      ui.planToggle?.classList.remove("active");
+    });
+  }
+  return planOffcanvas;
 }
 
+function setPlanOpen(on) {
+  const want = !!on;
+  const oc = getPlanOffcanvas();
+  if (oc) {
+    if (want) oc.show();
+    else oc.hide();
+    // planOpen synced via shown/hidden events; set eagerly for toggles
+    planOpen = want;
+    ui.planToggle?.classList.toggle("active", want);
+    return;
+  }
+  // Fallback if Bootstrap JS failed to load
+  planOpen = want;
+  const el = ui.planPanel || $("plan-panel");
+  el?.classList.toggle("show", want);
+  el?.style.setProperty("visibility", want ? "visible" : "hidden");
+  ui.planToggle?.classList.toggle("active", want);
+}
 function isEventForActive(payload) {
   // Events without sessionId are treated as active (legacy)
   if (!payload?.sessionId) return true;
@@ -4121,7 +4175,7 @@ async function newSession() {
  * CLI 风格插话：停掉当前轮 → 立刻发新话上屏，助手马上读到。
  * （不是排队等本轮结束）
  */
-async function interruptAndSend({ text, images, files }) {
+async function interruptAndSend({ text, images, files, displayText = null }) {
   const sid = activeId;
   if (!sid) return;
 
@@ -4150,11 +4204,26 @@ async function interruptAndSend({ text, images, files }) {
   if (myGen !== sendGeneration) return;
 
   setBusy(false);
-  await sendNow({ text, images, files, sessionId: sid, generation: myGen });
+  await sendNow({
+    text,
+    images,
+    files,
+    sessionId: sid,
+    generation: myGen,
+    displayText,
+  });
 }
 
 async function send() {
-  const text = ui.input.value.trim();
+  const raw = ui.input.value.trim();
+  const text = applyWorkModeToPrompt(raw);
+  // Bubble shows what the user typed; agent still receives official /goal · /plan forms
+  const displayText =
+    composerMode === "goal" && text !== raw && !/^\/goal\b/i.test(raw)
+      ? raw
+      : composerMode === "plan" && text !== raw && !/^\/plan\b/i.test(raw)
+        ? raw
+        : text;
   if ((!text && !pendingImages.length && !pendingFiles.length) || !activeId) return;
   if (connecting && !isAgentBusy(activeId) && !promptInFlight.has(activeId)) return;
 
@@ -4169,19 +4238,19 @@ async function send() {
     renderAttachPreview();
     renderContextChips();
     autosize();
-    enqueueFollowUp({ text, images, files });
+    enqueueFollowUp({ text, images, files, displayText });
     ui.input.focus();
     refreshSendButtonState();
     return;
   }
 
   try {
-    await sendNow({ text, images, files });
+    await sendNow({ text, images, files, displayText });
   } catch (err) {
     const msg = String(err?.message || err || "");
     // 主进程仍忙 → 先进排队，由用户点「引导」
     if (/仍在处理|上一轮|busy|处理中/i.test(msg)) {
-      enqueueFollowUp({ text, images, files });
+      enqueueFollowUp({ text, images, files, displayText });
       ui.input.focus();
       refreshSendButtonState();
       return;
@@ -4194,7 +4263,14 @@ async function send() {
  * Send a prompt for a specific session (may not be the focused tab).
  * Fixes: queue was only flushed when user stayed on the same tab.
  */
-async function sendNow({ text, images, files, sessionId = null, generation = null }) {
+async function sendNow({
+  text,
+  images,
+  files,
+  sessionId = null,
+  generation = null,
+  displayText: displayOverride = null,
+}) {
   const sentTo = sessionId || activeId;
   if (!sentTo) return;
   const isActive = sentTo === activeId;
@@ -4230,7 +4306,10 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
         { clampable: false },
       );
     }
-    const displayText = text || (images?.length ? `（${images.length} 张图片）` : "");
+    const displayText =
+      (displayOverride != null && String(displayOverride).trim() !== ""
+        ? String(displayOverride).trim()
+        : text) || (images?.length ? `（${images.length} 张图片）` : "");
     const userImages = (images || [])
       .filter((img) => img?.dataUrl)
       .map((img) => ({ dataUrl: img.dataUrl, key: img.dataUrl?.slice(0, 64) }));
@@ -4280,6 +4359,10 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
     const cmd = slashHead[1].toLowerCase();
     noteAutomationFromSlash(cmd, (slashHead[2] || "").trim());
     if (isActive && (cmd === "goal" || cmd === "plan")) paintComposerMode(cmd);
+    if (cmd === "plan") planModePending = false;
+    if (cmd === "goal" && !/^(status|pause|resume|clear)$/i.test((slashHead[2] || "").trim())) {
+      /* objective set — stay in goal mode */
+    }
   }
 
   // 仍有旧轮在飞且非引导路径：改排队，等用户点「引导」
@@ -4647,9 +4730,12 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
   }
 });
 
-// Plan panel toggle (top toolbar only)
-ui.planToggle?.addEventListener("click", () => setPlanOpen(!planOpen));
-ui.planClose?.addEventListener("click", () => setPlanOpen(false));
+// Plan panel — Bootstrap Offcanvas (toolbar toggle; close via btn / backdrop / Esc)
+ui.planToggle?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setPlanOpen(!planOpen);
+});
 
 // Access mode cards
 document.querySelectorAll("#access-mode-cards .mode-card").forEach((card) => {
@@ -5431,16 +5517,21 @@ function noteAutomationFromSlash(name, rawArgs) {
     setSessionAutomation(activeId, "loop", args.slice(0, 80) || "loop");
   } else if (n === "plan") {
     paintComposerMode("plan");
+    planModePending = false;
   }
 }
 
 // ── Composer work mode (Goal / Task / Plan) — compact popover next to effort ──
 
 const MODE_OPTIONS = [
-  { id: "goal", ico: "◎", titleKey: "mode.goal", shortKey: "mode.goalShort", descKey: "mode.goalDesc" },
+  // Order matches official product: Task (Normal) → Plan → Goal
   { id: "task", ico: "⚡", titleKey: "mode.task", shortKey: "mode.taskShort", descKey: "mode.taskDesc" },
   { id: "plan", ico: "💡", titleKey: "mode.plan", shortKey: "mode.planShort", descKey: "mode.planDesc" },
+  { id: "goal", ico: "◎", titleKey: "mode.goal", shortKey: "mode.goalShort", descKey: "mode.goalDesc" },
 ];
+
+/** True after user selects Plan until the first /plan-bearing send (official Pending). */
+let planModePending = false;
 
 function modeShortLabel(mode) {
   const id = mode === "goal" || mode === "plan" ? mode : "task";
@@ -5452,6 +5543,10 @@ function modeShortLabel(mode) {
   return id === "goal" ? "目标" : id === "plan" ? "计划" : "任务";
 }
 
+function modeIco(mode) {
+  return mode === "goal" ? "◎" : mode === "plan" ? "💡" : "⚡";
+}
+
 function paintComposerMode(mode) {
   const next = mode === "goal" || mode === "plan" ? mode : "task";
   composerMode = next;
@@ -5460,6 +5555,8 @@ function paintComposerMode(mode) {
     st.composerMode = next;
   }
   if (ui.modeLabel) ui.modeLabel.textContent = modeShortLabel(next);
+  const icoEl = $("mode-ico");
+  if (icoEl) icoEl.textContent = modeIco(next);
   if (ui.modeBtn) {
     const opt = MODE_OPTIONS.find((m) => m.id === next);
     const title =
@@ -5468,9 +5565,12 @@ function paintComposerMode(mode) {
         : next;
     ui.modeBtn.title = title;
     ui.modeBtn.setAttribute("aria-label", title);
+    ui.modeBtn.setAttribute("data-mode", next);
   }
+  $("composer")?.setAttribute("data-work-mode", next);
   // Reflect selection inside open popover
   if (ui.modePop && !ui.modePop.classList.contains("hidden")) renderModePop();
+  refreshSendButtonState();
 }
 
 function renderModePop() {
@@ -5479,14 +5579,16 @@ function renderModePop() {
   for (const m of MODE_OPTIONS) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "model-item" + (m.id === composerMode ? " active" : "");
+    btn.className = "mode-item" + (m.id === composerMode ? " active" : "");
     btn.setAttribute("role", "option");
     btn.setAttribute("aria-selected", m.id === composerMode ? "true" : "false");
     btn.dataset.mode = m.id;
     const title = typeof t === "function" ? t(m.titleKey) : m.id;
     const desc = typeof t === "function" ? t(m.descKey) : "";
     btn.title = desc || title;
-    btn.innerHTML = `<span class="mid">${m.ico} ${title}</span>`;
+    btn.innerHTML =
+      `<span class="mode-item-title"><span class="mode-item-ico">${m.ico}</span><span>${title}</span><span class="mode-item-check">✓</span></span>` +
+      `<span class="mode-item-desc">${desc}</span>`;
     btn.onclick = (e) => {
       e.stopPropagation();
       closeModePop();
@@ -5523,39 +5625,89 @@ ui.modeBtn?.addEventListener("click", (e) => {
 });
 
 /**
- * Switch work mode. Goal prepares /goal in the box; Plan enters agent plan mode.
- * Task is the default execute-and-edit path.
+ * Map free-form input to official CLI slash forms for the active work mode.
+ * Task (Normal): passthrough
+ * Plan: first message after selecting Plan → `/plan <text>` (official entry)
+ * Goal: plain text → `/goal <text>` (unless already a slash command)
+ */
+function applyWorkModeToPrompt(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) return text;
+  if (composerMode === "goal") {
+    if (/^\//.test(text)) return text;
+    return `/goal ${text}`;
+  }
+  if (composerMode === "plan" && planModePending) {
+    if (/^\/(plan|view-plan|show-plan|plan-view)\b/i.test(text)) return text;
+    if (/^\//.test(text)) return text;
+    return `/plan ${text}`;
+  }
+  return text;
+}
+
+/**
+ * Switch work mode per official CLI:
+ * - Task (Normal): default execute path
+ * - Plan: /plan — explore & write plan.md before code edits
+ * - Goal: /goal — autonomous multi-turn objective
  * @param {"goal"|"task"|"plan"} mode
  * @param {{ silent?: boolean }} [opts]
  */
 async function setComposerMode(mode, { silent = false } = {}) {
   const next = mode === "goal" || mode === "plan" ? mode : "task";
+  const prev = composerMode;
   if (!silent && !activeId) {
     appendBanner(t("mode.needSession"), "error");
     return;
   }
   paintComposerMode(next);
-  if (silent) return;
+  if (silent) {
+    planModePending = next === "plan";
+    return;
+  }
 
   if (next === "goal") {
-    const cur = String(ui.input?.value || "").trim();
-    if (!cur || /^\/goal\b/i.test(cur)) {
-      insertSlashIntoComposer("/goal ");
+    planModePending = false;
+    // No /goal in the composer — plain language only; send() wraps as /goal …
+    const cur = String(ui.input?.value || "");
+    const stripped = cur.replace(/^\s*\/goal(?:\s+|$)/i, "");
+    if (stripped !== cur && ui.input) {
+      ui.input.value = stripped;
+      autosize();
+      updateSlashFromInput?.();
     }
+    refreshSendButtonState();
+    ui.input?.focus();
     appendBanner(t("mode.goalHint"));
   } else if (next === "plan") {
+    // Official: /plan alone → Pending; next user prompt activates plan mode.
+    // Prefer wrapping the next message as `/plan …` rather than firing an empty turn.
+    planModePending = true;
     setPlanOpen(true);
-    appendBanner(t("mode.planEntered"));
+    const cur = String(ui.input?.value || "").trim();
+    if (/^\/goal\s*$/i.test(cur)) {
+      ui.input.value = "";
+      autosize();
+      updateSlashFromInput?.();
+    }
+    // Official CLI: /plan alone → Pending; next prompt activates Active.
+    // Fire /plan so the agent enters plan mode (same as TUI Shift+Tab / /plan).
     try {
       await runRealSlash("plan", "");
+      planModePending = false;
     } catch {
-      /* runRealSlash already surfaces errors */
+      /* keep planModePending so next free-text send becomes /plan … */
     }
+    appendBanner(t("mode.planEntered"));
   } else {
+    planModePending = false;
     if (/^\/goal\s*$/i.test(String(ui.input?.value || "").trim())) {
       ui.input.value = "";
       autosize();
       updateSlashFromInput?.();
+    }
+    if (prev === "plan" || prev === "goal") {
+      appendBanner(t("mode.taskEntered"));
     }
   }
 }
@@ -6134,7 +6286,9 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#session-ctx")) hideSessionCtx();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") hideSessionCtx();
+  if (e.key !== "Escape") return;
+  hideSessionCtx();
+  if (planOpen) setPlanOpen(false);
 });
 
 
