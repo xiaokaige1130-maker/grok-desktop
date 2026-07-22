@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.8.7-22C55E?style=flat-square" alt="Version 0.8.7" />
+  <img src="https://img.shields.io/badge/version-0.8.8-22C55E?style=flat-square" alt="Version 0.8.8" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-334155?style=flat-square" alt="Windows, macOS and Linux" />
   <img src="https://img.shields.io/badge/UI-中文%20%7C%20English-E11D48?style=flat-square" alt="Chinese and English UI" />
   <img src="https://img.shields.io/badge/backend-official%20Grok%20CLI-111827?style=flat-square" alt="Official Grok CLI backend" />
@@ -241,6 +241,7 @@ sudo apt-get install -f
 
 | 版本 | 要点 |
 |------|------|
+| **0.8.8** | Bootstrap 浮层 · 任务/计划/目标三模式 · 全局滚动条 |
 | **0.8.7** | Windows 托盘/通知/窗口记忆 · 顶栏工具栏统一 |
 | **0.8.5** | macOS 支持（DMG、窗口拖拽、Dock PATH、系统菜单） |
 | **0.8.4** | 会话右键菜单、置顶/归档、Skills/插件设置去重 |
@@ -474,6 +475,7 @@ Full notes: **[CHANGELOG.md](./CHANGELOG.md)**.
 
 | Version | Highlights |
 |---------|------------|
+| **0.8.8** | Bootstrap overlays · Task/Plan/Goal modes · global scrollbars |
 | **0.8.7** | Windows tray/notifications/window memory · unified top-bar toolbar |
 | **0.8.5** | macOS support (DMG, window drag, Dock PATH, app menu) |
 | **0.8.4** | Session context menu, pin/archive, Skills/plugins settings cleanup |
@@ -521,7 +523,7 @@ Bug reports and focused pull requests are welcome through [GitHub Issues](https:
 ---
 
 <p align="center">
-  <strong>Grok Desktop 0.8.7</strong><br />
+  <strong>Grok Desktop 0.8.8</strong><br />
   Windows · macOS · Linux, powered by the official Grok CLI.<br />
   <a href="./CHANGELOG.md">Changelog</a>
 </p>
