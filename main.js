@@ -870,7 +870,6 @@ function wireAcpEvents(client, sessionIdHint) {
     const full = {
       phase: "update",
       ...payload,
-      title: payload.title || "tool",
       status: payload.status || "updated",
     };
     send("chat:tool", withSid(full));

@@ -558,6 +558,13 @@ function markRunEnd(sid) {
   if (!runStartedAt.size) stopRunTicker();
 }
 
+function completedRunStatusDetail(sid, fallback = "已完成") {
+  const dur = sid ? lastRunDurationMs.get(sid) : null;
+  if (dur == null) return fallback;
+  const label = formatDuration(dur);
+  return uiLocale() === "en" ? `Done · ${label}` : `已完成 · 用时 ${label}`;
+}
+
 function ensureRunTicker() {
   if (runTickTimer) return;
   runTickTimer = setInterval(() => {
@@ -1825,16 +1832,21 @@ function appendToolCard(payload) {
     ui.inner.appendChild(card);
     toolCardMap.set(id, card);
   }
-  const status = (payload.status || "running").toLowerCase();
+  const mergedPayload = { ...(card._payload || {}) };
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (value !== undefined && value !== null) mergedPayload[key] = value;
+  }
+  card._payload = mergedPayload;
+  const status = (mergedPayload.status || "running").toLowerCase();
   const st = card.querySelector(".t-status");
   st.textContent = statusLabelZh(TOOL_STATUS_ZH, status);
   st.title = status;
   st.className = "t-status " + status.replace(/\s+/g, "-");
-  const human = humanizeToolActivity(payload);
+  const human = humanizeToolActivity(mergedPayload);
   card.querySelector(".t-title").textContent =
-    human.title || payload.title || payload.kind || "工具";
+    human.title || mergedPayload.title || mergedPayload.kind || "工具";
   // Store detail; only write into DOM if currently open
-  const detail = buildToolDetailText(payload);
+  const detail = buildToolDetailText(mergedPayload);
   if (detail) card._detail = detail;
   const preview = card.querySelector(".t-preview");
   if (preview) {
@@ -1847,7 +1859,7 @@ function appendToolCard(payload) {
     pre.classList.remove("tool-pre-empty");
     pre.textContent = card._detail;
   }
-  setActivityFromTool(payload);
+  setActivityFromTool(mergedPayload);
   scrollThreadToBottom({ force: threadFollowBottom });
   return card;
 }
@@ -4343,16 +4355,9 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
       if (!(st.messageQueue?.length || (activeId === sentTo && messageQueue.length))) {
         setBusy(false);
       }
-      const dur = lastRunDurationMs.get(sentTo);
-      const durLabel = dur != null ? formatDuration(dur) : "";
-      setStatus(
-        "ready",
-        durLabel
-          ? uiLocale() === "en"
-            ? `Done · ${durLabel}`
-            : `已完成 · 用时 ${durLabel}`
-          : "已完成",
-      );
+      st.statusState = "ready";
+      st.statusDetail = completedRunStatusDetail(sentTo);
+      setStatus(st.statusState, st.statusDetail);
       updateLiveStrip();
       if (activeMeta) applyHeader(activeMeta, { soft: true });
     }
@@ -4576,6 +4581,9 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
         }
         syncBusyChrome();
       }
+      if (state === "ready") {
+        st.statusDetail = completedRunStatusDetail(sid, detail || st.statusDetail);
+      }
       if (st.chunkRaf) {
         cancelAnimationFrame(st.chunkRaf);
         st.chunkRaf = 0;
@@ -4605,7 +4613,11 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
       }
     } else if (state === "ready" || state === "error" || state === "disconnected") {
       if (!promptInFlight.has(sid || activeId)) {
-        if (state) setStatus(state, detail);
+        const visibleDetail =
+          state === "ready"
+            ? completedRunStatusDetail(sid || activeId, detail)
+            : detail;
+        if (state) setStatus(state, visibleDetail);
         setBusy(false);
         refreshSendButtonState();
         if (state === "ready") {

@@ -6,6 +6,7 @@
  */
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
@@ -197,10 +198,58 @@ function main() {
   assert.ok(/this\.env = cliEnv\(/.test(acpSrc), "ACP prepares a GUI-safe child environment");
   assert.ok(/env:\s*this\.env/.test(acpSrc), "ACP terminal commands inherit the prepared environment");
   assert.ok(!/terminal\/create[\s\S]{0,400}env:\s*process\.env/.test(acpSrc));
-  const { isUserVisibleSession } = require("../src/sessions");
+  const {
+    cleanUserText,
+    isUserVisibleSession,
+    loadHistoryPreview,
+  } = require("../src/sessions");
   assert.strictEqual(isUserVisibleSession({}), true);
   assert.strictEqual(isUserVisibleSession({ session_kind: "subagent" }), false);
   assert.strictEqual(isUserVisibleSession({ session_kind: "subagent_fork" }), false);
+  assert.strictEqual(
+    cleanUserText("<system-reminder>hidden</system-reminder>visible"),
+    "visible",
+  );
+  assert.strictEqual(
+    cleanUserText("<system_reminder>hidden</system_reminder>visible"),
+    "visible",
+  );
+  const historyDir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-history-check-"));
+  try {
+    fs.writeFileSync(
+      path.join(historyDir, "chat_history.jsonl"),
+      [
+        JSON.stringify({
+          type: "user",
+          synthetic_reason: "skills_context",
+          content: "<system-reminder>internal context</system-reminder>",
+        }),
+        JSON.stringify({ type: "user", content: "real question" }),
+        JSON.stringify({ type: "assistant", content: "real answer" }),
+      ].join("\n"),
+      "utf8",
+    );
+    assert.deepStrictEqual(loadHistoryPreview(historyDir), [
+      { role: "user", text: "real question" },
+      { role: "assistant", text: "real answer" },
+    ]);
+  } finally {
+    fs.rmSync(historyDir, { recursive: true, force: true });
+  }
+  const terminalCreateBlock = acpSrc.slice(
+    acpSrc.indexOf('method === "terminal/create"'),
+    acpSrc.indexOf('method === "terminal/output"'),
+  );
+  assert.ok(
+    !terminalCreateBlock.includes('this.emit("toolCall"'),
+    "terminal/create must not duplicate the official ACP tool card",
+  );
+  assert.ok(
+    !/client\.on\("toolCallUpdate"[\s\S]{0,250}title:\s*payload\.title\s*\|\|\s*"tool"/.test(
+      mainSrc,
+    ),
+    "tool updates must preserve the original title",
+  );
   assert.ok(mainSrc.includes("UPDATE_CHECK_TIMEOUT_MS"), "update check has a deadline");
   assert.ok(mainSrc.includes('errorCode: err.code === "UPDATE_CHECK_TIMEOUT"'));
 
@@ -208,6 +257,11 @@ function main() {
   assert.ok(appSrc.includes("commandsLookLocalized") || appSrc.includes("applySlashCatalog"));
   assert.ok(appSrc.includes("applySlashCatalog"), "renderer gates catalog apply");
   assert.ok(appSrc.includes("refreshSlashCatalog"), "renderer falls back to listCommands");
+  assert.ok(appSrc.includes("card._payload = mergedPayload"), "tool updates merge prior card data");
+  assert.ok(
+    appSrc.includes("completedRunStatusDetail(sid || activeId, detail)"),
+    "ready updates retain the completed duration",
+  );
 
   console.log("[ui-polish] hooks discovery + automation UI…");
   const hooksMod = require("../src/hooks");

@@ -327,15 +327,18 @@ class AcpClient extends EventEmitter {
       return;
     }
     if (kind === "tool_call_update") {
-      this.emit("toolCallUpdate", {
+      const payload = {
         toolCallId: update.toolCallId,
-        title: update.title || update.kind || "tool",
-        kind: update.kind,
         status: update.status || "updated",
-        rawInput: update.rawInput || update.input || null,
-        content: update.content || null,
-        rawOutput: update.rawOutput || null,
-      });
+      };
+      if (update.title != null) payload.title = update.title;
+      if (update.kind != null) payload.kind = update.kind;
+      if (update.rawInput != null || update.input != null) {
+        payload.rawInput = update.rawInput ?? update.input;
+      }
+      if (update.content != null) payload.content = update.content;
+      if (update.rawOutput != null) payload.rawOutput = update.rawOutput;
+      this.emit("toolCallUpdate", payload);
       this.extractMedia(update);
       return;
     }
@@ -434,9 +437,6 @@ class AcpClient extends EventEmitter {
           buf.exitCode = code ?? 0;
         });
         this.respondOk(id, { terminalId });
-        if (!this.hydrateMode) {
-          this.emit("toolCall", { title: params.command, kind: "execute", status: "running" });
-        }
         return;
       }
       if (method === "terminal/output") {

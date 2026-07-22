@@ -40,7 +40,10 @@ function cleanUserText(text) {
   const m = t.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/i);
   if (m) t = m[1];
   t = t.replace(/<user_info>[\s\S]*?<\/user_info>/gi, "");
-  t = t.replace(/<system_reminder>[\s\S]*?<\/system_reminder>/gi, "");
+  t = t.replace(
+    /<system[-_]reminder(?:\s[^>]*)?>[\s\S]*?<\/system[-_]reminder>/gi,
+    "",
+  );
   t = t.replace(/<\/?[a-zA-Z_][\w:-]*(?:\s[^>]*)?>/g, " ");
   return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -149,6 +152,7 @@ function loadHistoryPreview(sessionDir, { maxMessages = 40, maxChars = 3500 } = 
     const type = row.type || row.role;
     if (type === "system" || type === "tool") continue;
     if (type === "user") {
+      if (row.synthetic_reason) continue;
       const text = truncate(cleanUserText(extractTextContent(row.content)), maxChars);
       if (text) messages.push({ role: "user", text });
     } else if (type === "assistant" || type === "model") {
