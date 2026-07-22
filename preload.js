@@ -8,9 +8,6 @@ function on(channel, cb) {
 }
 
 contextBridge.exposeInMainWorld("grokDesktop", {
-  // host platform (sync) — used for macOS titlebar drag / traffic-light padding
-  platform: process.platform,
-
   // pure slash catalog helpers (no IPC) — used by renderer palette + tests
   filterSlashCommands: (commands, query, opts) =>
     slashCatalog.filterSlashCommands(commands, query, opts),
@@ -83,6 +80,11 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   diagnose: () => ipcRenderer.invoke("app:diagnose"),
   checkUpdate: () => ipcRenderer.invoke("app:checkUpdate"),
   notify: (payload) => ipcRenderer.invoke("app:notify", payload || {}),
+  isOccluded: () => ipcRenderer.invoke("app:isOccluded"),
+  setBusyCount: (count) => ipcRenderer.invoke("app:setBusyCount", count),
+  flashFrame: (on) => ipcRenderer.invoke("app:flashFrame", on !== false),
+  // host platform (sync) — used for macOS titlebar drag / traffic-light padding
+  platform: process.platform,
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   listCommands: (sessionId) => ipcRenderer.invoke("commands:list", { sessionId }),
   listModels: (sessionId) => ipcRenderer.invoke("models:list", { sessionId }),
@@ -111,4 +113,8 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   onMode: (cb) => on("session:mode", cb),
   onModels: (cb) => on("session:models", cb),
   onModel: (cb) => on("session:model", cb),
+  onTrayNewSession: (cb) => on("tray:new-session", cb),
+  onAppCommand: (cb) => on("app:command", cb),
+  onOpenSession: (cb) => on("app:open-session", cb),
+  onTrayHint: (cb) => on("app:tray-hint", cb),
 });

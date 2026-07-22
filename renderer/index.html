@@ -11,13 +11,11 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <!-- macOS: top drag strip (hiddenInset has no native title bar to drag) -->
-    <div id="window-drag-strip" aria-hidden="true"></div>
     <div id="app">
       <!-- ===== LEFT: brand + nav + session rail ===== -->
       <aside id="sidebar">
         <div class="brand">
-          <img class="brand-mark" src="icon.png" alt="Grok" width="28" height="28" />
+          <img class="brand-mark" src="icon.png" alt="Grok" width="36" height="36" />
           <div class="brand-text">
             <div class="brand-name">Grok Desktop</div>
           </div>
@@ -80,14 +78,32 @@
             <div class="topbar-right">
               <div class="session-toolbar" id="session-toolbar">
                 <div class="session-actions hidden" id="session-actions" role="toolbar" aria-label="会话操作">
-                  <button type="button" class="sa-btn" id="btn-plan-toggle" data-i18n-title="chat.planHint" title="打开 / 关闭计划面板">
-                    <span class="sa-ico" aria-hidden="true">☰</span>
+                  <button type="button" class="sa-btn tb-btn" id="btn-plan-toggle" data-i18n-title="chat.planHint" title="打开 / 关闭计划面板">
+                    <span class="sa-ico tb-ico" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </span>
                     <span data-i18n="chat.plan">计划</span>
-                    <span class="plan-badge hidden" id="plan-badge">0</span>
+                    <span class="plan-badge tb-badge hidden" id="plan-badge">0</span>
                   </button>
-                  <button type="button" class="sa-btn" id="btn-act-export" data-i18n-title="chat.exportHint" title="导出 Markdown" data-i18n="chat.export">导出</button>
-                  <button type="button" class="sa-btn" id="btn-rename" data-i18n-title="chat.renameHint" title="重命名" data-i18n="chat.rename">重命名</button>
-                  <button type="button" class="sa-btn danger" id="btn-delete" data-i18n-title="chat.deleteHint" title="删除会话" data-i18n="chat.delete">删除</button>
+                  <span class="tb-sep" aria-hidden="true"></span>
+                  <button type="button" class="sa-btn tb-btn" id="btn-act-export" data-i18n-title="chat.exportHint" title="导出为 Markdown">
+                    <span class="sa-ico tb-ico" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2.5v7m0 0L5.5 7M8 9.5 10.5 7M3 12.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span data-i18n="chat.export">导出</span>
+                  </button>
+                  <button type="button" class="sa-btn tb-btn" id="btn-rename" data-i18n-title="chat.renameHint" title="重命名会话">
+                    <span class="sa-ico tb-ico" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10.5 2.5 13.5 5.5 6 13H3v-3L10.5 2.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span data-i18n="chat.rename">重命名</span>
+                  </button>
+                  <button type="button" class="sa-btn tb-btn danger tb-danger" id="btn-delete" data-i18n-title="chat.deleteHint" title="删除会话">
+                    <span class="sa-ico tb-ico" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3.5 4.5h9M6 4.5V3h4v1.5M5.5 4.5l.5 8h4l.5-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span data-i18n="chat.delete">删除</span>
+                  </button>
                 </div>
                 <div id="status-pill" class="status" data-state="idle" data-i18n="chat.ready">就绪</div>
               </div>
@@ -353,9 +369,30 @@
                 <div class="scard-row">
                   <div>
                     <div class="scard-title" data-i18n="settings.notifyDone">完成后通知</div>
-                    <div class="scard-desc" data-i18n="settings.notifyDoneDesc">后台会话跑完时弹出系统通知（当前会话不打扰）</div>
+                    <div class="scard-desc" data-i18n="settings.notifyDoneDesc">窗口失焦、托盘或后台会话完成时弹出系统通知</div>
                   </div>
                   <input type="checkbox" id="set-notify-done" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title" data-i18n="settings.closeToTray">关闭时最小化到托盘</div>
+                    <div class="scard-desc" data-i18n="settings.closeToTrayDesc">点关闭按钮不退出，常驻系统托盘；托盘右键或 Ctrl+Q 才退出</div>
+                  </div>
+                  <input type="checkbox" id="set-close-to-tray" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title" data-i18n="settings.minimizeToTray">最小化到托盘</div>
+                    <div class="scard-desc" data-i18n="settings.minimizeToTrayDesc">点任务栏最小化也隐藏到托盘（需先开启关闭到托盘）</div>
+                  </div>
+                  <input type="checkbox" id="set-minimize-to-tray" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title" data-i18n="settings.openAtLogin">开机自启</div>
+                    <div class="scard-desc" data-i18n="settings.openAtLoginDesc">登录系统后自动启动 Grok Desktop</div>
+                  </div>
+                  <input type="checkbox" id="set-open-at-login" class="toggle" />
                 </div>
                 <div class="scard-row">
                   <div>
@@ -371,9 +408,12 @@
                   <div><kbd>Enter</kbd><span data-i18n="sc.enter">发送 / 任务中排队</span></div>
                   <div><kbd>Shift</kbd>+<kbd>Enter</kbd><span data-i18n="sc.shiftEnter">换行</span></div>
                   <div><span class="kbd-txt">引导</span><span data-i18n="sc.guide">打断并立刻发送纠正</span></div>
-                  <div><kbd>P</kbd><span data-i18n="sc.plan">打开 / 关闭计划面板</span></div>
-                  <div><kbd>N</kbd><span data-i18n="sc.n">新对话（焦点不在输入框时）</span></div>
-                  <div><kbd class="mod-key">Ctrl</kbd>+<kbd>Tab</kbd><span data-i18n="sc.tab">切换已打开会话</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>N</kbd><span data-i18n="sc.ctrlN">新建会话</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>,</kbd><span data-i18n="sc.ctrlComma">打开设置</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>P</kbd><span data-i18n="sc.plan">打开 / 关闭计划面板</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>W</kbd><span data-i18n="sc.ctrlW">关闭当前会话标签</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>Tab</kbd><span data-i18n="sc.tab">切换已打开会话</span></div>
+                  <div><kbd>Ctrl</kbd>+<kbd>Q</kbd><span data-i18n="sc.ctrlQ">退出应用</span></div>
                   <div><kbd>/</kbd><span data-i18n="sc.slash">斜杠命令</span></div>
                 </div>
               </div>

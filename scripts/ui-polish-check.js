@@ -278,7 +278,7 @@ function main() {
   const html = read("renderer/index.html");
   assert.ok(html.includes('id="session-actions"'), "session-actions present");
   assert.ok(html.includes("session-toolbar"), "session-toolbar wrapper");
-  assert.ok(html.includes('class="sa-btn"'), "unified sa-btn controls");
+  assert.ok(/class="[^"]*\bsa-btn\b[^"]*"/.test(html), "unified sa-btn controls");
   assert.ok(html.includes('id="btn-plan-toggle"') && html.includes("sa-btn"), "plan is sa-btn");
   assert.ok(html.includes('id="btn-act-export"') && html.includes("sa-btn"), "export is sa-btn");
   assert.ok(html.includes('id="btn-rename"'), "rename wired");

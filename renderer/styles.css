@@ -195,12 +195,12 @@ body.platform-darwin.theme-light #sidebar {
   padding: 16px 16px 12px; flex: 0 0 auto;
 }
 .brand-mark {
-  width: 28px; height: 28px; border-radius: 8px;
-  object-fit: contain;
+  width: 36px; height: 36px; border-radius: 10px;
+  object-fit: cover;
   display: block;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  background: transparent;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  background: #111;
 }
 .brand-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
 .brand-tag { font-size: 11px; color: var(--dim); margin-top: 1px; }
@@ -809,9 +809,15 @@ body.platform-darwin.theme-light #sidebar {
 
 .topbar, .page-header {
   flex: 0 0 auto;
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; padding: 16px 28px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 28px 12px;
   border-bottom: 1px solid transparent;
+}
+.topbar-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 .topbar-left, .page-header > div:first-child { min-width: 0; }
 #chat-title, .page-header h1 {
@@ -822,7 +828,109 @@ body.platform-darwin.theme-light #sidebar {
   margin: 4px 0 0; font-size: 12.5px; color: var(--dim); line-height: 1.4;
 }
 .topbar-right, .page-actions {
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+
+/* Unified session toolbar (plan / export / rename / delete) */
+.session-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.session-toolbar.hidden { display: none; }
+.session-actions { display: none; } /* legacy class no longer used */
+
+.tb-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.tb-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.tb-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.tb-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.55);
+  outline-offset: 1px;
+}
+.tb-btn .tb-ico {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  opacity: 0.88;
+  flex-shrink: 0;
+}
+.tb-btn .tb-ico svg { display: block; }
+.tb-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+  flex-shrink: 0;
+}
+.tb-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.28);
+  color: #ddd6fe;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.tb-badge.hidden { display: none !important; }
+.tb-badge.done {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+}
+/* Plan toggle — same family, accent when open / has items */
+#btn-plan-toggle.active {
+  background: rgba(139, 92, 246, 0.18);
+  color: #e9e5ff;
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.35);
+}
+#btn-plan-toggle.has-plan:not(.active) {
+  color: var(--text);
+}
+#btn-plan-toggle.has-plan .tb-badge:not(.hidden) {
+  background: rgba(139, 92, 246, 0.35);
+}
+.tb-btn.tb-danger {
+  color: var(--muted);
+}
+.tb-btn.tb-danger:hover {
+  background: rgba(251, 113, 133, 0.12);
+  color: #fda4af;
 }
 /* Unified session toolbar: actions + status share one control language */
 .session-toolbar {
@@ -830,6 +938,11 @@ body.platform-darwin.theme-light #sidebar {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .session-actions {
   display: inline-flex;
@@ -925,6 +1038,39 @@ body.platform-darwin.theme-light #sidebar {
 .status[data-state="working"],
 .status[data-state="connecting"] { color: var(--warn); border-color: rgba(251,191,36,.25); }
 .status[data-state="error"] { color: var(--err); border-color: rgba(251,113,133,.3); }
+
+/* Compact topbar actions on narrow widths */
+@media (max-width: 1100px) {
+  .tb-btn span:not(.tb-ico):not(.tb-badge) {
+    /* keep labels — product clarity over pure icons */
+  }
+}
+@media (max-width: 920px) {
+  .tb-btn > span:not(.tb-ico):not(.tb-badge) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .tb-btn {
+    width: 30px;
+    padding: 0;
+    position: relative;
+  }
+  .tb-badge {
+    position: absolute;
+    top: 2px;
+    right: 1px;
+    min-width: 14px;
+    height: 14px;
+    font-size: 9px;
+  }
+}
 
 /* Thread + wallpaper shell */
 .thread-shell {
@@ -1751,7 +1897,7 @@ body.platform-darwin.theme-light #sidebar {
 .plan-item .p-content { flex: 1; color: var(--text); min-width: 0; word-break: break-word; }
 
 .plan-badge.done {
-  background: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.2);
   color: #86efac;
 }
 
@@ -1769,20 +1915,6 @@ body.platform-darwin.theme-light #sidebar {
 .access-chip.mode-safe { border-color: rgba(251, 191, 36, 0.4); color: #fde68a; }
 .access-chip.mode-balanced { border-color: rgba(139, 92, 246, 0.4); color: #c4b5fd; }
 .access-chip.mode-full { border-color: rgba(74, 222, 128, 0.35); color: #86efac; }
-
-/* Strip plan toggle removed — only topbar #btn-plan-toggle remains. */
-.strip-link {
-  border: 0;
-  background: transparent;
-  color: #a5b4fc;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0;
-}
-.strip-link:hover { text-decoration: underline; }
-.strip-link.has-plan { color: var(--ok); }
-.plan-dot.hidden { display: none; }
 
 /* Access mode cards in settings */
 .mode-cards {

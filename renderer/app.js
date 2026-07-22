@@ -7,13 +7,12 @@
 
 const $ = (id) => document.getElementById(id);
 
-// macOS hiddenInset: mark platform so CSS can enable -webkit-app-region drag surfaces
+// Mark the host platform before the first render so platform-specific chrome applies.
 (function applyPlatformClass() {
   try {
-    const p = (typeof grokDesktop !== "undefined" && grokDesktop.platform) || "";
-    if (p) document.body.classList.add(`platform-${p}`);
-    // Settings shortcut list: show ⌘ instead of Ctrl on macOS
-    if (p === "darwin") {
+    const platform = (typeof grokDesktop !== "undefined" && grokDesktop.platform) || "";
+    if (platform) document.body.classList.add(`platform-${platform}`);
+    if (platform === "darwin") {
       document.querySelectorAll("kbd.mod-key").forEach((el) => {
         el.textContent = "⌘";
       });
@@ -228,6 +227,9 @@ let desktopSettings = {
   wallpaperPath: null,
   wallpaperDim: 45,
   notifyOnDone: true,
+  closeToTray: true,
+  minimizeToTray: false,
+  openAtLogin: false,
   checkUpdates: true,
   setupDismissed: false,
   locale: "zh",
@@ -2124,7 +2126,7 @@ function renderPlan(planData) {
   const badge = $("plan-badge");
   const progress = $("plan-progress");
 
-  // Single plan control: topbar button only (no duplicate next to access/model strip).
+  // Plan toggle lives only in the top toolbar — always available when session open.
   ui.planToggle?.classList.remove("hidden");
 
   if (!entries.length) {
@@ -2740,13 +2742,19 @@ document.addEventListener("click", (e) => {
   if (modeOpen && !e.target.closest(".model-wrap")) closeModePop();
 });
 
-// Topbar real actions
+// Topbar session actions (export / rename / delete wired below)
 $("btn-act-export")?.addEventListener("click", async () => {
   if (!activeId) return;
   try {
     const r = await grokDesktop.exportSession(activeId);
-    if (r?.ok) appendBanner(`已导出：${r.path}`);
+    if (r?.ok) {
+      flashToast(t("chat.export") + " ✓");
+      appendBanner(`已导出：${r.path}`);
+    } else if (!r?.cancelled) {
+      flashToast(r?.error || "导出取消");
+    }
   } catch (err) {
+    flashToast(err.message || "导出失败");
     appendBanner(`导出失败：${err.message}`, "error");
   }
 });
@@ -3647,6 +3655,66 @@ async function pasteFromClipboard() {
 grokDesktop.onInsertText?.((text) => {
   if (typeof text === "string" && text) insertTextAtCursor(text);
 });
+grokDesktop.onTrayNewSession?.(() => {
+  void newSession();
+});
+
+grokDesktop.onOpenSession?.(({ sessionId } = {}) => {
+  if (sessionId) void selectSession(sessionId);
+});
+
+grokDesktop.onTrayHint?.(() => {
+  flashToast(t("tray.hint"));
+});
+
+grokDesktop.onAppCommand?.(({ command } = {}) => {
+  if (command === "new-session") void newSession();
+  else if (command === "open-settings") switchView("settings");
+  else if (command === "open-about") {
+    switchView("settings");
+    showSettingsPanel("about");
+  } else if (command === "toggle-plan") {
+    if (activeId && view === "chat") setPlanOpen(!planOpen);
+  } else if (command === "check-update") {
+    switchView("settings");
+    showSettingsPanel("about");
+    void checkForUpdates(true);
+  }
+});
+
+/** Debounce completion toasts (sendPrompt + status events can both fire) */
+const recentDoneNotify = new Map();
+
+/** Notify when done if the user is not looking at this session / window */
+async function maybeNotifyDone(sessionId, title) {
+  if (desktopSettings.notifyOnDone === false) return;
+  const key = sessionId || "_";
+  const now = Date.now();
+  if (recentDoneNotify.has(key) && now - recentDoneNotify.get(key) < 4000) return;
+  let occluded = document.hidden;
+  try {
+    if (typeof grokDesktop.isOccluded === "function") {
+      occluded = !!(await grokDesktop.isOccluded());
+    }
+  } catch {
+    occluded = document.hidden;
+  }
+  const backgroundTab = sessionId && sessionId !== activeId;
+  if (!occluded && !backgroundTab) return;
+  recentDoneNotify.set(key, now);
+  void grokDesktop.notify?.({
+    title: t("notify.doneTitle"),
+    body: t("notify.doneBody", { title: title || sessionId?.slice(0, 8) || "session" }),
+    sessionId,
+  });
+  void grokDesktop.flashFrame?.(true);
+}
+
+function syncBusyChrome() {
+  const n = workingSessions.size;
+  void grokDesktop.setBusyCount?.(n);
+}
+
 grokDesktop.onPasteRequest?.(() => {
   void pasteFromClipboard();
 });
@@ -4215,6 +4283,7 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
   doneSessions.delete(sentTo);
   scheduleRenderTabs(true);
   refreshSidebarSessionState();
+  syncBusyChrome();
   if (isActive) {
     setBusy(true);
     setStatus("working", "思考中…");
@@ -4286,19 +4355,16 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
       );
       updateLiveStrip();
       if (activeMeta) applyHeader(activeMeta, { soft: true });
-    } else if (desktopSettings.notifyOnDone !== false) {
-      const title =
-        sessions.find((x) => x.id === sentTo)?.title ||
-        st.meta?.title ||
-        sentTo.slice(0, 8);
-      void grokDesktop.notify?.({
-        title: t("notify.doneTitle"),
-        body: t("notify.doneBody", { title }),
-      });
     }
+    const title =
+      sessions.find((x) => x.id === sentTo)?.title ||
+      st.meta?.title ||
+      sentTo.slice(0, 8);
+    await maybeNotifyDone(sentTo, title);
     st.streamingEl = null;
     refreshSendButtonState();
     renderSidebar(ui.search?.value || "");
+    syncBusyChrome();
     await flushSessionQueue(sentTo);
   }
 }
@@ -4486,6 +4552,7 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
       markRunStart(sid);
       everWorkedSessions.add(sid);
       doneSessions.delete(sid);
+      syncBusyChrome();
     } else if (state === "ready" || state === "error" || state === "disconnected") {
       // 本轮 prompt 还在 await 时，忽略中途的 ready，避免误判为空闲导致插不进去
       if (!promptInFlight.has(sid)) {
@@ -4495,25 +4562,19 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
         // 跑完 → 绿点（当前会话也显示，点开/再点一次清）
         if (wasWorking && (state === "ready" || state === "error")) {
           doneSessions.add(sid);
-          // 后台会话完成 → 系统通知
-          if (
-            state === "ready" &&
-            sid !== activeId &&
-            desktopSettings.notifyOnDone !== false
-          ) {
+          // 失焦 / 托盘 / 后台 tab → 系统通知（sendPrompt finally 也会通知，这里补 ACP 路径）
+          if (state === "ready") {
             const title =
               sessions.find((x) => x.id === sid)?.title ||
               sessionUi.get(sid)?.meta?.title ||
               sid.slice(0, 8);
-            void grokDesktop.notify?.({
-              title: t("notify.doneTitle"),
-              body: t("notify.doneBody", { title }),
-            });
+            void maybeNotifyDone(sid, title);
           }
         }
         if (state === "ready" || state === "error") {
           everWorkedSessions.delete(sid);
         }
+        syncBusyChrome();
       }
       if (st.chunkRaf) {
         cancelAnimationFrame(st.chunkRaf);
@@ -4574,7 +4635,7 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
   }
 });
 
-// Plan panel toggles
+// Plan panel toggle (top toolbar only)
 ui.planToggle?.addEventListener("click", () => setPlanOpen(!planOpen));
 ui.planClose?.addEventListener("click", () => setPlanOpen(false));
 
@@ -4927,6 +4988,10 @@ async function loadSettings() {
     if ($("set-show-thinking")) $("set-show-thinking").checked = !!desktopSettings.showThinking;
     if ($("set-enter-send")) $("set-enter-send").checked = desktopSettings.enterToSend !== false;
     if ($("set-notify-done")) $("set-notify-done").checked = desktopSettings.notifyOnDone !== false;
+    if ($("set-close-to-tray")) $("set-close-to-tray").checked = desktopSettings.closeToTray !== false;
+    if ($("set-minimize-to-tray"))
+      $("set-minimize-to-tray").checked = !!desktopSettings.minimizeToTray;
+    if ($("set-open-at-login")) $("set-open-at-login").checked = !!desktopSettings.openAtLogin;
     if ($("set-check-updates")) $("set-check-updates").checked = desktopSettings.checkUpdates !== false;
     if ($("set-density")) $("set-density").value = desktopSettings.density || "comfortable";
     if ($("set-theme")) $("set-theme").value = desktopSettings.theme || "dark";
@@ -5235,6 +5300,9 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       showThinking: !!$("set-show-thinking")?.checked,
       enterToSend: !!$("set-enter-send")?.checked,
       notifyOnDone: !!$("set-notify-done")?.checked,
+      closeToTray: !!$("set-close-to-tray")?.checked,
+      minimizeToTray: !!$("set-minimize-to-tray")?.checked,
+      openAtLogin: !!$("set-open-at-login")?.checked,
       checkUpdates: !!$("set-check-updates")?.checked,
       density: $("set-density")?.value || "comfortable",
       theme: $("set-theme")?.value || desktopSettings.theme || "dark",
@@ -6060,19 +6128,38 @@ document.addEventListener("keydown", (e) => {
 
 // keyboard shortcuts
 document.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
   // Ctrl/Cmd+Tab · Ctrl/Cmd+Shift+Tab — cycle parallel session tabs
-  if ((e.ctrlKey || e.metaKey) && e.key === "Tab") {
+  if (mod && e.key === "Tab") {
     if (openTabs.length >= 2) {
       e.preventDefault();
       cycleTab(e.shiftKey ? -1 : 1);
       return;
     }
   }
-  // Ctrl/Cmd+W — close current agent tab (not delete session)
-  if ((e.ctrlKey || e.metaKey) && (e.key === "w" || e.key === "W") && activeId && openTabs.includes(activeId)) {
-    if (e.target.matches("input, textarea, select") && !e.metaKey) return;
-    // only when not heavily typing conflict — allow always with meta on linux often is Super; ctrl+w is fine
-    if (view === "chat") {
+  // Ctrl/Cmd+N — new session
+  if (mod && (e.key === "n" || e.key === "N") && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    void newSession();
+    return;
+  }
+  // Ctrl/Cmd+, — settings
+  if (mod && (e.key === "," || e.code === "Comma")) {
+    e.preventDefault();
+    switchView("settings");
+    return;
+  }
+  // Ctrl/Cmd+P — plan panel
+  if (mod && (e.key === "p" || e.key === "P") && !e.shiftKey) {
+    if (activeId && view === "chat") {
+      e.preventDefault();
+      setPlanOpen(!planOpen);
+      return;
+    }
+  }
+  // Ctrl/Cmd+W — close current agent tab (not delete session); works even in inputs
+  if (mod && (e.key === "w" || e.key === "W") && activeId && openTabs.includes(activeId)) {
+    if (view === "chat" || view === "settings") {
       e.preventDefault();
       const id = activeId;
       void (async () => {
@@ -6090,12 +6177,21 @@ document.addEventListener("keydown", (e) => {
       return;
     }
   }
+  // Digit shortcuts Ctrl+1..9 jump open tabs
+  if (mod && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key) && openTabs.length) {
+    const idx = Number(e.key) - 1;
+    if (openTabs[idx]) {
+      e.preventDefault();
+      void selectSession(openTabs[idx]);
+      return;
+    }
+  }
   if (e.target.matches("input, textarea, select")) return;
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
     newSession();
   }
-  // P — toggle plan panel when a session is open
+  // P — toggle plan panel when a session is open (legacy single-key)
   if ((e.key === "p" || e.key === "P") && activeId && view === "chat") {
     e.preventDefault();
     setPlanOpen(!planOpen);
