@@ -10,6 +10,7 @@ const DEFAULT_DESKTOP = {
   showThinking: true,
   density: "comfortable", // comfortable | compact
   enterToSend: true,
+  /** dark | light | system */
   theme: "dark",
   autoApprove: true, // product default: skip permission prompts
   /** Session ids that were open as tabs last time */

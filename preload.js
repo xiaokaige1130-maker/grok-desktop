@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const slashCatalog = require("./src/commands-zh");
 
 function on(channel, cb) {
   const handler = (_e, data) => cb(data);
@@ -9,6 +10,14 @@ function on(channel, cb) {
 contextBridge.exposeInMainWorld("grokDesktop", {
   // host platform (sync) — used for macOS titlebar drag / traffic-light padding
   platform: process.platform,
+
+  // pure slash catalog helpers (no IPC) — used by renderer palette + tests
+  filterSlashCommands: (commands, query, opts) =>
+    slashCatalog.filterSlashCommands(commands, query, opts),
+  groupSlashCommands: (commands) => slashCatalog.groupSlashCommands(commands),
+  resolveDesktopRoute: (name, isSkill) => slashCatalog.resolveDesktopRoute(name, isSkill),
+  isDesktopUiRoute: (name, isSkill) => slashCatalog.isDesktopUiRoute(name, isSkill),
+  slashGroupMeta: () => ({ ...slashCatalog.GROUP_META }),
 
   // sessions
   listSessions: (opts) => ipcRenderer.invoke("sessions:list", opts || {}),
@@ -85,6 +94,7 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   removeMcp: (name) => ipcRenderer.invoke("mcp:remove", name),
   doctorMcp: () => ipcRenderer.invoke("mcp:doctor"),
   addMcp: (payload) => ipcRenderer.invoke("mcp:add", payload),
+  listHooks: (cwd) => ipcRenderer.invoke("hooks:list", { cwd }),
 
   onChunk: (cb) => on("chat:chunk", cb),
   onTool: (cb) => on("chat:tool", cb),

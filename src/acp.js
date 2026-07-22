@@ -1,11 +1,10 @@
-const { spawn } = require("child_process");
+const { spawn: spawnShell } = require("child_process");
 const { createInterface } = require("readline");
 const { EventEmitter } = require("events");
 const fs = require("fs");
 const path = require("path");
-const { spawn: spawnShell } = require("child_process");
 const { fileURLToPath } = require("url");
-const { spawnCli } = require("./platform");
+const { cliEnv, spawnCli } = require("./platform");
 
 function guessMime(p) {
   const ext = path.extname(p).toLowerCase();
@@ -26,7 +25,7 @@ class AcpClient extends EventEmitter {
     super();
     this.cliPath = cliPath;
     this.cwd = cwd;
-    this.env = env || process.env;
+    this.env = cliEnv(env || process.env);
     this.log = log;
     this.experimentalMemory = experimentalMemory;
     this.proc = null;
@@ -419,7 +418,7 @@ class AcpClient extends EventEmitter {
         const child = spawnShell(params.command, {
           shell: true,
           cwd: params.cwd || this.cwd,
-          env: process.env,
+          env: this.env,
         });
         const buf = { output: "", exitCode: null, child };
         this._terminals.set(terminalId, buf);

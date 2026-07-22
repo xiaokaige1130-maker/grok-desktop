@@ -19,7 +19,9 @@ const skills = require("./src/skills");
 const settings = require("./src/settings");
 const memory = require("./src/memory");
 const mcp = require("./src/mcp");
+const hooks = require("./src/hooks");
 const { commandExists, defaultCwd, spawnCli } = require("./src/platform");
+const { commandsForRenderer } = require("./src/commands-zh");
 
 let mainWindow = null;
 /** @type {Map<string, { client: import('./src/acp').AcpClient, meta: object|null, cwd: string, lastUsed: number }>} */
@@ -97,6 +99,7 @@ function mediaForRenderer(media) {
 
 const APP_ICON = path.join(__dirname, "assets", "icon.png");
 const DESKTOP_VERSION = require("./package.json").version;
+const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 
 function createWindow() {
   // Compact default size — fits a normal laptop without dominating the screen
@@ -291,7 +294,6 @@ function evictLruAgents(keepId) {
 }
 
 function wireAcpEvents(client, sessionIdHint) {
-  const { localizeAll } = require("./src/commands-zh");
   const sid = () => client.sessionId || sessionIdHint || null;
 
   const withSid = (payload) => ({ ...payload, sessionId: sid() });
@@ -339,7 +341,7 @@ function wireAcpEvents(client, sessionIdHint) {
     if (m) send("chat:media", withSid(m));
   });
   client.on("commands", (list) => {
-    send("commands:update", withSid({ commands: localizeAll(list) }));
+    send("commands:update", withSid({ commands: commandsForRenderer(list) }));
   });
   client.on("mode", (mode) => send("session:mode", withSid({ mode })));
   client.on("model", (modelId) => send("session:model", withSid({ modelId })));
@@ -677,11 +679,12 @@ ipcMain.handle("session:activate", async (_e, { sessionId } = {}) => {
     extractModels(live.lastSessionMeta, live) ||
     extractModels({ models: live.lastModels }, live);
   send("agents:update", { openIds: [...agents.keys()], activeSessionId });
+  const commands = commandsForRenderer(live.availableCommands);
   return {
     ok: true,
     live: true,
     session: s,
-    commands: live.availableCommands || [],
+    commands,
     models,
     openIds: [...agents.keys()],
     currentModelId: live.currentModelId || models?.currentModelId || null,
@@ -708,12 +711,12 @@ ipcMain.handle("session:open", async (_e, { sessionId, soft } = {}) => {
     touchAgent(sessionId);
     const entry = getAgentEntry(sessionId);
     if (entry) entry.meta = s;
-    const { localizeAll } = require("./src/commands-zh");
-    const commands = live.availableCommands || [];
-    if (commands.length && !soft) {
+    // Always localize — soft tab switch uses this return payload for slash catalog
+    const commands = commandsForRenderer(live.availableCommands);
+    if (commands.length) {
       send("commands:update", {
         sessionId,
-        commands: localizeAll(commands),
+        commands,
       });
     }
     const models =
@@ -755,11 +758,11 @@ ipcMain.handle("session:open", async (_e, { sessionId, soft } = {}) => {
     const entry = getAgentEntry(sessionId);
     if (entry) entry.meta = s;
     activeSessionMeta = s;
-    if (client.availableCommands?.length) {
-      const { localizeAll } = require("./src/commands-zh");
+    const commands = commandsForRenderer(client.availableCommands);
+    if (commands.length) {
       send("commands:update", {
         sessionId,
-        commands: localizeAll(client.availableCommands),
+        commands,
       });
     }
     const models = extractModels(loaded, client) || extractModels(client.lastSessionMeta, client);
@@ -774,7 +777,7 @@ ipcMain.handle("session:open", async (_e, { sessionId, soft } = {}) => {
     return {
       ok: true,
       session: s,
-      commands: client.availableCommands || [],
+      commands,
       models,
       openIds: [...agents.keys()],
     };
@@ -1100,10 +1103,8 @@ ipcMain.handle("memory:setEnabled", async (_e, enabled) => memory.setEnabled(!!e
 ipcMain.handle("memory:clear", async () => memory.clearMemory());
 
 ipcMain.handle("commands:list", async (_e, { sessionId } = {}) => {
-  const { localizeAll } = require("./src/commands-zh");
   const client = getAgent(sessionId || activeSessionId);
-  const raw = client?.availableCommands || [];
-  return { commands: localizeAll(raw) };
+  return { commands: commandsForRenderer(client?.availableCommands) };
 });
 
 ipcMain.handle("session:export", async (_e, { sessionId } = {}) => {
@@ -1169,6 +1170,14 @@ ipcMain.handle("session:run-slash", async (_e, { command, args, sessionId } = {}
 ipcMain.handle("mcp:list", async () => mcp.listMcp());
 ipcMain.handle("mcp:remove", async (_e, name) => mcp.removeMcp(name));
 ipcMain.handle("mcp:doctor", async () => mcp.doctorMcp());
+ipcMain.handle("hooks:list", async (_e, { cwd } = {}) => {
+  const sessionCwd =
+    cwd ||
+    activeSessionMeta?.cwd ||
+    findSession(activeSessionId)?.cwd ||
+    null;
+  return hooks.listHooks({ cwd: sessionCwd });
+});
 ipcMain.handle("mcp:add", async (_e, { name, command, args }) =>
   mcp.addMcp(name, command, args || []),
 );
@@ -1366,6 +1375,14 @@ ipcMain.handle("app:checkUpdate", async () => {
   try {
     const data = await new Promise((resolve, reject) => {
       const req = net.request({ url: api, method: "GET" });
+      let settled = false;
+      let timer = null;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        callback(value);
+      };
       req.setHeader("User-Agent", "grok-desktop");
       req.setHeader("Accept", "application/vnd.github+json");
       let body = "";
@@ -1373,19 +1390,30 @@ ipcMain.handle("app:checkUpdate", async () => {
         res.on("data", (chunk) => {
           body += chunk.toString();
         });
+        res.on("error", (err) => finish(reject, err));
         res.on("end", () => {
           if (res.statusCode && res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode}`));
+            finish(reject, new Error(`HTTP ${res.statusCode}`));
             return;
           }
           try {
-            resolve(JSON.parse(body));
+            finish(resolve, JSON.parse(body));
           } catch (e) {
-            reject(e);
+            finish(reject, e);
           }
         });
       });
-      req.on("error", reject);
+      req.on("error", (err) => finish(reject, err));
+      timer = setTimeout(() => {
+        const err = new Error("update check timed out");
+        err.code = "UPDATE_CHECK_TIMEOUT";
+        finish(reject, err);
+        try {
+          req.abort();
+        } catch {
+          /* request already closed */
+        }
+      }, UPDATE_CHECK_TIMEOUT_MS);
       req.end();
     });
     const tag = String(data.tag_name || data.name || "").replace(/^v/i, "");
@@ -1405,6 +1433,7 @@ ipcMain.handle("app:checkUpdate", async () => {
       latest: null,
       hasUpdate: false,
       error: err.message || String(err),
+      errorCode: err.code === "UPDATE_CHECK_TIMEOUT" ? "timeout" : "network",
       url: "https://github.com/xiaokaige1130-maker/grok-desktop/releases",
     };
   }

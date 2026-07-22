@@ -150,13 +150,15 @@ const ui = {
   liveStrip: $("live-strip"),
   stripModel: $("strip-model"),
   stripEffort: $("strip-effort"),
+  stripTime: $("strip-time"),
+  stripDuration: $("strip-duration"),
+  stripDurSep: $("strip-dur-sep"),
   stripCwd: $("strip-cwd"),
   stripQueue: $("strip-queue"),
   planPanel: $("plan-panel"),
   planList: $("plan-list"),
   planToggle: $("btn-plan-toggle"),
   planClose: $("btn-plan-close"),
-  planDot: $("plan-dot"),
   navSettings: $("nav-settings"),
   modelBtn: $("btn-model"),
   modelLabel: $("model-label"),
@@ -164,6 +166,9 @@ const ui = {
   effortBtn: $("btn-effort"),
   effortLabel: $("effort-label"),
   effortPop: $("effort-popover"),
+  modeBtn: $("btn-mode"),
+  modeLabel: $("mode-label"),
+  modePop: $("mode-popover"),
   settingsBack: $("settings-back"),
   settingsSearch: $("settings-search"),
   refresh: $("btn-refresh"),
@@ -191,6 +196,9 @@ const PAGE = 12; // keep DOM light; load earlier on demand
 const CLAMP = 480;
 /** Soft cap: older tool/diff details stay collapsed & lazy */
 const MAX_OPEN_DIFFS = 1;
+/** Only one expanded tool card at a time — long agent runs stay scrollable. */
+const MAX_OPEN_TOOLS = 1;
+const TOOL_PREVIEW_LEN = 96;
 
 let view = "chat";
 let sessions = [];
@@ -212,6 +220,7 @@ let desktopSettings = {
   showThinking: true,
   enterToSend: true,
   density: "comfortable",
+  theme: "dark",
   autoApprove: true,
   openTabs: [],
   lastActiveId: null,
@@ -431,6 +440,9 @@ let availableModels = [];
 let currentModelId = null;
 let modelOpen = false;
 let effortOpen = false;
+let modeOpen = false;
+/** @type {"goal"|"task"|"plan"} */
+let composerMode = "task";
 let currentEffort = "high";
 let effortOptions = [
   { id: "high", label: "高" },
@@ -472,21 +484,130 @@ function projectName(s) {
   return parts[parts.length - 1] || s.cwd;
 }
 
-function relativeTime(iso) {
+function uiLocale() {
+  try {
+    return window.GrokI18n?.getLocale?.() || desktopSettings?.locale || "zh";
+  } catch {
+    return "zh";
+  }
+}
+
+function timeApi() {
+  return globalThis.GrokTime || window.GrokTime || null;
+}
+
+/** Mac-style absolute time (月日 时:分). Falls back if time-format.js missing. */
+function formatAbsoluteTime(iso) {
+  const api = timeApi();
+  if (api?.formatAbsoluteTime) return api.formatAbsoluteTime(iso, { locale: uiLocale() });
   if (!iso) return "";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "";
-  const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (sec < 60) return "刚刚";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}分钟`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}小时`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}天`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}月`;
-  return `${Math.floor(mo / 12)}年`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatFullDateTime(iso) {
+  const api = timeApi();
+  if (api?.formatFullDateTime) return api.formatFullDateTime(iso, { locale: uiLocale() });
+  return formatAbsoluteTime(iso);
+}
+
+function formatDuration(ms, opts) {
+  const api = timeApi();
+  if (api?.formatDuration) return api.formatDuration(ms, { locale: uiLocale(), ...(opts || {}) });
+  const sec = Math.max(0, Math.floor((ms || 0) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
+function formatElapsedClock(ms) {
+  const api = timeApi();
+  if (api?.formatElapsedClock) return api.formatElapsedClock(ms);
+  const sec = Math.max(0, Math.floor((ms || 0) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** @deprecated relative labels — prefer formatAbsoluteTime */
+function relativeTime(iso) {
+  return formatAbsoluteTime(iso);
+}
+
+/** Per-session run timing for live duration */
+const runStartedAt = new Map();
+const lastRunDurationMs = new Map();
+let runTickTimer = null;
+
+function markRunStart(sid) {
+  if (!sid) return;
+  if (!runStartedAt.has(sid)) runStartedAt.set(sid, Date.now());
+  ensureRunTicker();
+}
+
+function markRunEnd(sid) {
+  if (!sid) return;
+  const start = runStartedAt.get(sid);
+  if (start != null) {
+    lastRunDurationMs.set(sid, Math.max(0, Date.now() - start));
+    runStartedAt.delete(sid);
+  }
+  if (!runStartedAt.size) stopRunTicker();
+}
+
+function ensureRunTicker() {
+  if (runTickTimer) return;
+  runTickTimer = setInterval(() => {
+    if (!runStartedAt.size) {
+      stopRunTicker();
+      return;
+    }
+    refreshSidebarSessionState();
+    if (activeId && runStartedAt.has(activeId)) {
+      updateLiveStrip();
+      refreshWorkingStatusClock();
+      // keep subtitle duration live
+      if (activeMeta) applyHeader(activeMeta, { soft: true });
+    }
+  }, 1000);
+}
+
+function stopRunTicker() {
+  if (runTickTimer) {
+    clearInterval(runTickTimer);
+    runTickTimer = null;
+  }
+}
+
+function sessionWhenLabel(s, { working, done } = {}) {
+  const en = uiLocale() === "en";
+  if (working) {
+    const start = runStartedAt.get(s?.id);
+    if (start != null) {
+      const clock = formatElapsedClock(Date.now() - start);
+      return en ? `Running ${clock}` : `运行中 ${clock}`;
+    }
+    return en ? "Running" : "运行中";
+  }
+  if (done) {
+    const dur = lastRunDurationMs.get(s?.id);
+    if (dur != null) {
+      const d = formatDuration(dur);
+      return en ? `Done · ${d}` : `已完成 · ${d}`;
+    }
+    return en ? "Done" : "已完成";
+  }
+  return formatAbsoluteTime(s?.updatedAt);
+}
+
+function refreshWorkingStatusClock() {
+  if (!activeId || !runStartedAt.has(activeId)) return;
+  if (ui.status?.dataset?.state !== "working") return;
+  const start = runStartedAt.get(activeId);
+  const clock = formatElapsedClock(Date.now() - start);
+  const en = uiLocale() === "en";
+  ui.status.textContent = en ? `Working… ${clock}` : `思考中… ${clock}`;
 }
 
 function shortPath(p) {
@@ -741,6 +862,30 @@ async function guideSendFromQueue(idx) {
   ui.input?.focus();
 }
 
+function updateLiveStripDurationOnly() {
+  if (!ui.stripDuration || !ui.stripDurSep) return;
+  const en = uiLocale() === "en";
+  if (activeId && runStartedAt.has(activeId)) {
+    const clock = formatElapsedClock(Date.now() - runStartedAt.get(activeId));
+    ui.stripDuration.classList.remove("hidden");
+    ui.stripDurSep.classList.remove("hidden");
+    ui.stripDuration.textContent = en ? `⏱ ${clock}` : `⏱ ${clock}`;
+    ui.stripDuration.title = en ? "Processing time" : "本次处理时长";
+    ui.stripDuration.classList.add("is-live");
+  } else if (activeId && lastRunDurationMs.has(activeId)) {
+    const d = formatDuration(lastRunDurationMs.get(activeId));
+    ui.stripDuration.classList.remove("hidden");
+    ui.stripDurSep.classList.remove("hidden");
+    ui.stripDuration.textContent = en ? `Done ${d}` : `用时 ${d}`;
+    ui.stripDuration.title = en ? "Last run duration" : "上次处理时长";
+    ui.stripDuration.classList.remove("is-live");
+  } else {
+    ui.stripDuration.classList.add("hidden");
+    ui.stripDurSep.classList.add("hidden");
+    ui.stripDuration.classList.remove("is-live");
+  }
+}
+
 function updateLiveStrip() {
   if (!ui.liveStrip) return;
   if (!activeId) {
@@ -753,6 +898,12 @@ function updateLiveStrip() {
     const lab = effortOptions.find((e) => e.id === currentEffort)?.label || currentEffort || "—";
     ui.stripEffort.textContent = lab;
   }
+  if (ui.stripTime) {
+    const iso = activeMeta?.updatedAt;
+    ui.stripTime.textContent = iso ? formatAbsoluteTime(iso) : "—";
+    ui.stripTime.title = iso ? formatFullDateTime(iso) : "";
+  }
+  updateLiveStripDurationOnly();
   if (ui.stripCwd) ui.stripCwd.textContent = shortPath(activeMeta?.cwd);
   if (ui.stripQueue) {
     if (messageQueue.length) {
@@ -901,6 +1052,9 @@ function activatePane(sessionId) {
   diffCardMap = st.diffCardMap;
   streamingEl = st.streamingEl;
   ui.thread.scrollTop = st.scrollTop || 0;
+  // After pane swap: follow only if restored position is near bottom
+  threadFollowBottom = isThreadNearBottom(180);
+  observeActivePaneForScroll();
   renderPlan(st.plan);
 }
 
@@ -1161,26 +1315,99 @@ function cycleTab(dir = 1) {
   if (next) void selectSession(next);
 }
 
+/** User wants stick-to-bottom while streaming (false after scroll-up). */
+let threadFollowBottom = true;
+let threadScrollWired = false;
+
 /** True if the chat thread is already near the bottom (user wants stick-to-bottom). */
-function isThreadNearBottom(threshold = 120) {
+function isThreadNearBottom(threshold = 160) {
   const el = ui.thread;
   if (!el) return true;
+  // content shorter than viewport → always "at bottom"
+  if (el.scrollHeight <= el.clientHeight + 4) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 }
 
+function wireThreadScrollFollow() {
+  if (threadScrollWired || !ui.thread) return;
+  threadScrollWired = true;
+  ui.thread.addEventListener(
+    "scroll",
+    () => {
+      // While programmatic scroll runs, don't flip follow off
+      if (scrollThreadToBottom._locking) return;
+      threadFollowBottom = isThreadNearBottom(180);
+    },
+    { passive: true },
+  );
+  // Content height changes (tool cards, diffs, images) often land after the
+  // stream frame that scrolled — re-stick when the user is still following.
+  try {
+    const ro = new ResizeObserver(() => {
+      if (threadFollowBottom) scrollThreadToBottom();
+    });
+    scrollThreadToBottom._ro = ro;
+    if (ui.inner) ro.observe(ui.inner);
+  } catch {
+    /* ResizeObserver unavailable — double-rAF path still helps */
+  }
+}
+
+/** Re-bind size observer when the active session pane swaps. */
+function observeActivePaneForScroll() {
+  const ro = scrollThreadToBottom._ro;
+  if (!ro || !ui.inner) return;
+  try {
+    ro.disconnect();
+    ro.observe(ui.inner);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Scroll thread to bottom only when user is already following the stream.
- * Avoids layout thrash + fighting the user when they scroll up to read.
+ * Scroll thread to bottom when following the stream (or force=true).
+ * Double-rAF + re-queue handles tool cards / images expanding after first paint.
  */
 function scrollThreadToBottom({ force = false } = {}) {
   if (!ui.thread) return;
-  if (!force && !isThreadNearBottom(140)) return;
-  // rAF: coalesce multiple scroll requests in the same frame
+  if (force) threadFollowBottom = true;
+  if (!force && !threadFollowBottom) return;
+  scrollThreadToBottom._pending = true;
   if (scrollThreadToBottom._raf) return;
-  scrollThreadToBottom._raf = requestAnimationFrame(() => {
+
+  const apply = () => {
+    const el = ui.thread;
+    if (!el) return;
+    scrollThreadToBottom._locking = true;
+    el.scrollTop = el.scrollHeight + 4096;
+    // release lock after browser applies scroll (scroll events can lag 1–2 frames)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollThreadToBottom._locking = false;
+      });
+    });
+  };
+
+  const tick = () => {
     scrollThreadToBottom._raf = 0;
-    if (ui.thread) ui.thread.scrollTop = ui.thread.scrollHeight;
-  });
+    if (!scrollThreadToBottom._pending) return;
+    scrollThreadToBottom._pending = false;
+    if (!threadFollowBottom && !force) return;
+    apply();
+    // Second pass: late layout (tool cards, markdown, images)
+    requestAnimationFrame(() => {
+      if (threadFollowBottom) apply();
+      // Third pass after a beat for async images / open cards
+      setTimeout(() => {
+        if (threadFollowBottom) apply();
+        if (scrollThreadToBottom._pending) {
+          scrollThreadToBottom._raf = requestAnimationFrame(tick);
+        }
+      }, 48);
+    });
+  };
+  scrollThreadToBottom._raf = requestAnimationFrame(tick);
 }
 
 /** Throttle full tab-bar rebuilds (was firing every background chunk). */
@@ -1323,7 +1550,11 @@ function flushStreamChunks(sid) {
       scheduleRenderTabs();
     }
   }
-  if (isActive) scrollThreadToBottom();
+  if (isActive) {
+    if (thought && desktopSettings.showThinking !== false) setActivityThinking();
+    else if (assistant) setActivityThinking();
+    scrollThreadToBottom();
+  }
 }
 
 /** Mark stream finished so old turns can use content-visibility again. */
@@ -1378,6 +1609,183 @@ function buildToolDetailText(payload) {
   return bits.join("\n\n").slice(0, 6000);
 }
 
+function toolPreviewLine(detail) {
+  if (!detail) return "";
+  const line = String(detail).split(/\r?\n/).find((l) => l.trim()) || "";
+  const one = line.replace(/\s+/g, " ").trim();
+  if (!one) return "";
+  // skip boring kind: lines for preview
+  const cleaned = one.replace(/^kind:\s*/i, "").trim() || one;
+  return cleaned.length > TOOL_PREVIEW_LEN
+    ? `${cleaned.slice(0, TOOL_PREVIEW_LEN)}…`
+    : cleaned;
+}
+
+/** Pull a human path/command from tool payload. */
+function extractToolTarget(payload) {
+  const raw = payload?.rawInput;
+  if (raw == null) {
+    const t = String(payload?.title || "");
+    // title sometimes is "Read foo.js"
+    const m = t.match(/\s(\S+\.\w{1,8})\s*$/);
+    return m ? m[1] : "";
+  }
+  if (typeof raw === "string") {
+    const line = raw.split(/\r?\n/).find((l) => l.trim()) || raw;
+    return line.replace(/\s+/g, " ").trim().slice(0, 160);
+  }
+  if (typeof raw === "object") {
+    const o = raw;
+    const v =
+      o.path ||
+      o.file_path ||
+      o.filePath ||
+      o.target_file ||
+      o.command ||
+      o.cmd ||
+      o.query ||
+      o.pattern ||
+      o.glob ||
+      o.url ||
+      o.uri ||
+      "";
+    if (v) return String(v).replace(/\s+/g, " ").trim().slice(0, 160);
+    try {
+      return JSON.stringify(o).slice(0, 120);
+    } catch {
+      return "";
+    }
+  }
+  return String(raw).slice(0, 120);
+}
+
+function shortTargetLabel(target) {
+  if (!target) return "";
+  const s = String(target).trim();
+  // prefer basename for long paths
+  if (s.includes("/") || s.includes("\\")) {
+    const parts = s.replace(/\\/g, "/").split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      const base = parts[parts.length - 1];
+      const parent = parts[parts.length - 2];
+      const short = `${parent}/${base}`;
+      return short.length > 48 ? `…${base.slice(-40)}` : short;
+    }
+  }
+  return s.length > 56 ? `${s.slice(0, 54)}…` : s;
+}
+
+/**
+ * Claude Code / Codex style activity line for the sticky rail + tool titles.
+ * @returns {{ running: boolean, title: string, line: string, sub: string }}
+ */
+function humanizeToolActivity(payload) {
+  const status = String(payload?.status || "running").toLowerCase();
+  const running = !/complete|ok|success|failed|error|cancel|done/.test(status);
+  const kind = String(payload?.kind || "").toLowerCase();
+  const titleRaw = String(payload?.title || "");
+  const blob = `${kind} ${titleRaw}`.toLowerCase();
+  const target = shortTargetLabel(extractToolTarget(payload));
+  const en = uiLocale() === "en";
+
+  let verbRun;
+  let verbDone;
+  let emoji = "⚙";
+  if (/read|view|cat|open_file|read_file|get_file/.test(blob)) {
+    verbRun = en ? "Reading" : "正在阅读";
+    verbDone = en ? "Read" : "已阅读";
+    emoji = "📖";
+  } else if (/write|edit|create|str_replace|search_replace|apply_patch|patch|update_file|write_file/.test(blob)) {
+    verbRun = en ? "Editing" : "正在修改";
+    verbDone = en ? "Edited" : "已修改";
+    emoji = "✎";
+  } else if (/bash|shell|terminal|exec|command|run_terminal|run_command|powershell/.test(blob)) {
+    verbRun = en ? "Running command" : "正在运行命令";
+    verbDone = en ? "Command done" : "命令完成";
+    emoji = "⌘";
+  } else if (/grep|search|find|glob|rg|list_dir|listdir|ls\b/.test(blob)) {
+    verbRun = en ? "Searching" : "正在搜索";
+    verbDone = en ? "Search done" : "搜索完成";
+    emoji = "⌕";
+  } else if (/web|fetch|browse|http|download/.test(blob)) {
+    verbRun = en ? "Fetching web" : "正在联网查询";
+    verbDone = en ? "Fetch done" : "联网完成";
+    emoji = "🌐";
+  } else if (/diff|git/.test(blob)) {
+    verbRun = en ? "Inspecting changes" : "正在查看变更";
+    verbDone = en ? "Inspected" : "已查看变更";
+    emoji = "±";
+  } else if (/think|reason/.test(blob)) {
+    verbRun = en ? "Thinking" : "正在思考";
+    verbDone = en ? "Thought" : "思考完成";
+    emoji = "…";
+  } else {
+    verbRun = en ? "Using tool" : "正在调用工具";
+    verbDone = en ? "Tool done" : "工具完成";
+    emoji = "⚙";
+  }
+
+  const verb = running ? verbRun : verbDone;
+  const title = target ? `${verb} · ${target}` : titleRaw ? `${verb} · ${titleRaw}` : verb;
+  const line = `${emoji} ${title}`;
+  const sub = toolPreviewLine(buildToolDetailText(payload || {}));
+  return { running, title, line, sub, verb, target, emoji };
+}
+
+// ── Activity rail removed (redundant with tool cards / status pill) ──
+
+let activityClearTimer = 0;
+/** @type {string[]} */
+const activityLog = [];
+
+/** No-op: activity rail UI removed — keep status pill in sync only. */
+function setActivityRail(_opts = {}) {
+  /* intentionally empty — do not reintroduce a dock-level activity bar */
+}
+
+function setActivityFromTool(payload) {
+  const h = humanizeToolActivity(payload);
+  // Keep status pill in sync with a short line while working
+  if (h.running && activeId && isAgentBusy(activeId)) {
+    const start = runStartedAt.get(activeId);
+    const clock = start != null ? formatElapsedClock(Date.now() - start) : "";
+    if (ui.status?.dataset?.state === "working") {
+      ui.status.textContent = clock ? `${h.verb} · ${clock}` : h.verb;
+    }
+  }
+}
+
+function setActivityThinking() {
+  /* activity rail removed */
+}
+
+function clearActivityRailSoon() {
+  clearTimeout(activityClearTimer);
+}
+
+function collapseToolCard(card) {
+  if (!card) return;
+  card.classList.remove("open");
+  const pre = card.querySelector("pre");
+  if (pre && !pre.classList.contains("tool-pre-empty")) {
+    pre.classList.add("tool-pre-empty");
+    pre.textContent = "展开查看详情";
+  }
+}
+
+function enforceMaxOpenTools(keepCard) {
+  const opens = [...ui.inner.querySelectorAll(".tool-card.open")];
+  for (const c of opens) {
+    if (c === keepCard) continue;
+    collapseToolCard(c);
+  }
+  // if somehow still over limit
+  const still = [...ui.inner.querySelectorAll(".tool-card.open")];
+  for (let i = 0; i < still.length - MAX_OPEN_TOOLS; i++) {
+    if (still[i] !== keepCard) collapseToolCard(still[i]);
+  }
+}
+
 function appendToolCard(payload) {
   ui.inner.querySelector(".welcome")?.remove();
   const id = payload.toolCallId || `t-${Date.now()}`;
@@ -1390,21 +1798,26 @@ function appendToolCard(payload) {
     card.innerHTML = `
       <button type="button" class="tool-card-head">
         <span class="t-status"></span>
-        <span class="t-title"></span>
+        <span class="t-main">
+          <span class="t-title"></span>
+          <span class="t-preview"></span>
+        </span>
         <span class="t-chev">▾</span>
       </button>
       <div class="tool-card-body"><pre class="tool-pre-empty">展开查看详情</pre></div>`;
     // Lazy: only paint huge pre when user opens the card
     card.querySelector(".tool-card-head").onclick = () => {
-      const open = card.classList.toggle("open");
-      const pre = card.querySelector("pre");
-      if (open && card._detail) {
-        pre.classList.remove("tool-pre-empty");
-        pre.textContent = card._detail;
-      } else if (!open && pre && !pre.classList.contains("tool-pre-empty")) {
-        // Drop heavy DOM when collapsed — big win on long chats
-        pre.classList.add("tool-pre-empty");
-        pre.textContent = "展开查看详情";
+      const willOpen = !card.classList.contains("open");
+      if (willOpen) {
+        enforceMaxOpenTools(card);
+        card.classList.add("open");
+        const pre = card.querySelector("pre");
+        if (card._detail) {
+          pre.classList.remove("tool-pre-empty");
+          pre.textContent = card._detail;
+        }
+      } else {
+        collapseToolCard(card);
       }
     };
     ui.inner.appendChild(card);
@@ -1415,16 +1828,25 @@ function appendToolCard(payload) {
   st.textContent = statusLabelZh(TOOL_STATUS_ZH, status);
   st.title = status;
   st.className = "t-status " + status.replace(/\s+/g, "-");
-  card.querySelector(".t-title").textContent = payload.title || payload.kind || "工具";
+  const human = humanizeToolActivity(payload);
+  card.querySelector(".t-title").textContent =
+    human.title || payload.title || payload.kind || "工具";
   // Store detail; only write into DOM if currently open
   const detail = buildToolDetailText(payload);
   if (detail) card._detail = detail;
+  const preview = card.querySelector(".t-preview");
+  if (preview) {
+    const p = toolPreviewLine(card._detail);
+    preview.textContent = p;
+    preview.hidden = !p;
+  }
   if (card.classList.contains("open") && card._detail) {
     const pre = card.querySelector("pre");
     pre.classList.remove("tool-pre-empty");
     pre.textContent = card._detail;
   }
-  scrollThreadToBottom();
+  setActivityFromTool(payload);
+  scrollThreadToBottom({ force: threadFollowBottom });
   return card;
 }
 
@@ -1542,7 +1964,19 @@ function appendDiffCard(change) {
   if (card.classList.contains("open")) paintDiffBody(card);
   else card.querySelector(".diff-card-body")?.replaceChildren();
 
-  scrollThreadToBottom();
+  // Surface file edits in the activity rail (reuse pathLabel / add / del above)
+  const en = uiLocale() === "en";
+  const stats = add || del ? ` (+${add} −${del})` : "";
+  setActivityRail({
+    main: en
+      ? `✎ Editing · ${shortTargetLabel(pathLabel)}${stats}`
+      : `✎ 正在修改 · ${shortTargetLabel(pathLabel)}${stats}`,
+    sub: absPath || "",
+    active: !/complete|ok|success/i.test(String(change.status || "")),
+    log: true,
+  });
+
+  scrollThreadToBottom({ force: threadFollowBottom });
   return card;
 }
 
@@ -1689,21 +2123,13 @@ function renderPlan(planData) {
   const entries = normalizePlanEntries(planData);
   const badge = $("plan-badge");
   const progress = $("plan-progress");
-  const stripBtn = $("btn-plan-toggle-strip");
 
-  // Plan toggle lives in topbar (session-actions) — always available when session open.
-  // Do NOT hide the button when empty; empty state is shown inside the panel.
+  // Single plan control: topbar button only (no duplicate next to access/model strip).
   ui.planToggle?.classList.remove("hidden");
-  if (stripBtn) {
-    if (entries.length) stripBtn.classList.remove("hidden");
-    else stripBtn.classList.add("hidden");
-  }
 
   if (!entries.length) {
     ui.planList.innerHTML = `<div class="plan-empty">${t("chat.planEmpty")}</div>`;
-    ui.planDot?.classList.add("hidden");
     ui.planToggle?.classList.remove("has-plan");
-    stripBtn?.classList.remove("has-plan");
     if (badge) {
       badge.classList.add("hidden");
       badge.classList.remove("done");
@@ -1716,9 +2142,7 @@ function renderPlan(planData) {
     return;
   }
 
-  ui.planDot?.classList.remove("hidden");
   ui.planToggle?.classList.add("has-plan");
-  stripBtn?.classList.add("has-plan");
 
   const done = entries.filter((e) =>
     /completed|done|success/i.test(String(e.status || "")),
@@ -1751,7 +2175,6 @@ function setPlanOpen(on) {
   planOpen = !!on;
   ui.planPanel?.classList.toggle("hidden", !planOpen);
   ui.planToggle?.classList.toggle("active", planOpen);
-  $("btn-plan-toggle-strip")?.classList.toggle("active", planOpen);
 }
 
 function isEventForActive(payload) {
@@ -1812,7 +2235,7 @@ function appendPermissionCard(req) {
     actions.appendChild(btn);
   }
   ui.inner.appendChild(card);
-  ui.thread.scrollTop = ui.thread.scrollHeight;
+  scrollThreadToBottom({ force: true });
 }
 
 /** Run a real slash command against the live agent (no placeholders). */
@@ -1823,9 +2246,11 @@ async function runRealSlash(command, args) {
   }
   const cmd = String(command || "").replace(/^\//, "");
   const sid = activeId;
+  noteAutomationFromSlash(cmd, args || "");
   appendTurn("user", args ? `/${cmd} ${args}` : `/${cmd}`, { clampable: false });
   streamingEl = null;
   workingSessions.add(sid);
+  markRunStart(sid);
   renderTabs();
   setBusy(true);
   setStatus("working", `/${cmd}…`);
@@ -1848,11 +2273,15 @@ async function runRealSlash(command, args) {
     }
   } finally {
     workingSessions.delete(sid);
+    markRunEnd(sid);
     renderTabs();
     if (activeId === sid) {
       streamingEl = null;
       setBusy(false);
+      updateLiveStrip();
+      if (activeMeta) applyHeader(activeMeta, { soft: true });
     }
+    refreshSidebarSessionState();
   }
 }
 
@@ -1922,6 +2351,50 @@ function showSettingsPanel(id) {
   if (settingsPanel === "skills") void fillSettingsSkills();
   if (settingsPanel === "plugins") void fillSettingsPlugins();
   if (settingsPanel === "mcp") void fillSettingsMcp();
+  if (settingsPanel === "automation") void fillSettingsAutomation();
+}
+
+async function fillSettingsAutomation() {
+  await fillSettingsHooks();
+}
+
+async function fillSettingsHooks() {
+  const box = $("settings-hooks-list");
+  if (!box) return;
+  box.innerHTML = `<div class="list-empty">${uiLocale() === "en" ? "Scanning…" : "扫描中…"}</div>`;
+  try {
+    const r = await grokDesktop.listHooks?.(activeMeta?.cwd || undefined);
+    const list = r?.hooks || [];
+    box.replaceChildren();
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "list-empty";
+      empty.innerHTML =
+        uiLocale() === "en"
+          ? `No hooks found<br><span style="opacity:.8">Add JSON under ~/.grok/hooks/</span>`
+          : `未发现 Hooks<br><span style="opacity:.8">可在 ~/.grok/hooks/ 下放置 *.json</span>`;
+      box.appendChild(empty);
+      return;
+    }
+    for (const h of list) {
+      const row = document.createElement("div");
+      row.className = "embed-row";
+      const left = document.createElement("div");
+      left.className = "embed-row-main";
+      const title = document.createElement("strong");
+      title.textContent = h.name || h.path;
+      const meta = document.createElement("span");
+      meta.className = "embed-meta";
+      const ev = (h.events || []).slice(0, 6).join(", ") || "—";
+      meta.textContent = `${h.scope || ""}${h.compat ? " · compat" : ""} · ${ev}`;
+      meta.title = h.path || "";
+      left.append(title, meta);
+      row.appendChild(left);
+      box.appendChild(row);
+    }
+  } catch (err) {
+    box.innerHTML = `<div class="list-error">${err?.message || err}</div>`;
+  }
 }
 
 async function fillSettingsSkills() {
@@ -2086,7 +2559,23 @@ ui.settingsSearch?.addEventListener("input", () => {
 $("settings-goto-memory")?.addEventListener("click", () => switchView("memory"));
 $("settings-goto-skills")?.addEventListener("click", () => switchView("skills"));
 $("settings-goto-plugins")?.addEventListener("click", () => switchView("plugins"));
-
+$("auto-goto-skills")?.addEventListener("click", () => switchView("skills"));
+$("auto-insert-goal")?.addEventListener("click", () => insertSlashIntoComposer("/goal "));
+$("auto-insert-loop")?.addEventListener("click", () => insertSlashIntoComposer("/loop "));
+$("auto-hooks-refresh")?.addEventListener("click", () => void fillSettingsHooks());
+$("auto-bar-status")?.addEventListener("click", () => {
+  if (!activeId) return;
+  const info = sessionAutomation.get(activeId);
+  if (info?.kind === "loop") {
+    void runRealSlash("loop", "status");
+  } else {
+    void runRealSlash("goal", "status");
+  }
+});
+$("auto-bar-clear")?.addEventListener("click", () => {
+  if (activeId) clearSessionAutomation(activeId);
+  else hideAutoBar();
+});
 // ── Model picker ───────────────────────────────────────
 
 function shortModelName(id) {
@@ -2151,7 +2640,9 @@ function openModelPop() {
   if (!activeId || connecting) return;
   modelOpen = true;
   effortOpen = false;
+  modeOpen = false;
   ui.effortPop?.classList.add("hidden");
+  ui.modePop?.classList.add("hidden");
   hideSlash();
   renderModelPop();
   ui.modelPop?.classList.remove("hidden");
@@ -2181,7 +2672,9 @@ function openEffortPop() {
   if (!activeId || connecting) return;
   effortOpen = true;
   modelOpen = false;
+  modeOpen = false;
   ui.modelPop?.classList.add("hidden");
+  ui.modePop?.classList.add("hidden");
   hideSlash();
   renderEffortPop();
   ui.effortPop?.classList.remove("hidden");
@@ -2244,6 +2737,7 @@ grokDesktop.onModel?.(({ modelId, sessionId }) => {
 document.addEventListener("click", (e) => {
   if (modelOpen && !e.target.closest(".model-wrap")) closeModelPop();
   if (effortOpen && !e.target.closest(".model-wrap")) closeEffortPop();
+  if (modeOpen && !e.target.closest(".model-wrap")) closeModePop();
 });
 
 // Topbar real actions
@@ -2310,12 +2804,11 @@ function makeSessionRow(s) {
     ind.className = "s-ind";
   }
   row.querySelector(".title").textContent = s.title || s.id.slice(0, 8);
-  row.querySelector(".title").title = `${s.title || s.id}\n${s.id}`;
-  row.querySelector(".when").textContent = working
-    ? "运行中"
-    : done
-      ? "已完成"
-      : relativeTime(s.updatedAt);
+  const fullWhen = formatFullDateTime(s.updatedAt);
+  row.querySelector(".title").title = [s.title || s.id, fullWhen, s.id].filter(Boolean).join("\n");
+  const whenEl = row.querySelector(".when");
+  whenEl.textContent = sessionWhenLabel(s, { working, done });
+  whenEl.title = fullWhen || whenEl.textContent;
   row.onclick = (e) => {
     e.stopPropagation();
     if (view !== "chat") switchView("chat");
@@ -2468,11 +2961,11 @@ function refreshSidebarSessionState() {
       }
     }
     if (when) {
-      when.textContent = working
-        ? "运行中"
-        : done
-          ? "已完成"
-          : relativeTime(s?.updatedAt);
+      when.textContent = sessionWhenLabel(s || { id: sid, updatedAt: s?.updatedAt }, {
+        working,
+        done,
+      });
+      if (s?.updatedAt) when.title = formatFullDateTime(s.updatedAt);
     }
   });
 }
@@ -2508,6 +3001,28 @@ function showWelcome() {
       <div class="welcome-cta">
         <button type="button" class="btn primary" id="welcome-new"></button>
         <button type="button" class="btn" id="welcome-memory"></button>
+        <button type="button" class="btn" id="welcome-auto"></button>
+      </div>
+      <div class="welcome-auto" id="welcome-auto-map">
+        <div class="welcome-auto-head"></div>
+        <div class="auto-map compact">
+          <button type="button" class="auto-map-card clickable" data-auto="skills">
+            <div class="auto-map-title"></div>
+            <p class="auto-map-desc"></p>
+          </button>
+          <button type="button" class="auto-map-card clickable" data-auto="goal">
+            <div class="auto-map-title"></div>
+            <p class="auto-map-desc"></p>
+          </button>
+          <button type="button" class="auto-map-card clickable" data-auto="loop">
+            <div class="auto-map-title"></div>
+            <p class="auto-map-desc"></p>
+          </button>
+          <button type="button" class="auto-map-card clickable" data-auto="hooks">
+            <div class="auto-map-title"></div>
+            <p class="auto-map-desc"></p>
+          </button>
+        </div>
       </div>
     </div>`;
   const root = welcomePane.querySelector(".welcome");
@@ -2525,17 +3040,40 @@ function showWelcome() {
   });
   welcomePane.querySelector("#welcome-new").textContent = t("welcome.new");
   welcomePane.querySelector("#welcome-memory").textContent = t("welcome.memory");
+  welcomePane.querySelector("#welcome-auto").textContent = t("welcome.auto");
+  const head = welcomePane.querySelector(".welcome-auto-head");
+  if (head) head.textContent = t("welcome.autoHead");
+  const autoCards = [
+    ["skills", "auto.map.skillTitle", "auto.map.skillDesc"],
+    ["goal", "auto.map.goalTitle", "auto.map.goalDesc"],
+    ["loop", "auto.map.loopTitle", "auto.map.loopDesc"],
+    ["hooks", "auto.map.hooksTitle", "auto.map.hooksDesc"],
+  ];
+  autoCards.forEach(([key, tk, dk]) => {
+    const card = welcomePane.querySelector(`.auto-map-card[data-auto="${key}"]`);
+    if (!card) return;
+    card.querySelector(".auto-map-title").textContent = t(tk);
+    card.querySelector(".auto-map-desc").textContent = t(dk);
+  });
   while (ui.thread.firstChild) ui.thread.removeChild(ui.thread.firstChild);
   ui.thread.appendChild(welcomePane);
   ui.inner = welcomePane;
   $("welcome-new")?.addEventListener("click", () => newSession());
   $("welcome-memory")?.addEventListener("click", () => switchView("memory"));
+  $("welcome-auto")?.addEventListener("click", () => {
+    switchView("settings");
+    showSettingsPanel("automation");
+  });
+  welcomePane.querySelectorAll(".auto-map-card[data-auto]").forEach((card) => {
+    card.addEventListener("click", () => handleWelcomeAuto(card.getAttribute("data-auto")));
+  });
   ui.sessionActions.classList.add("hidden");
   activeId = null;
   activeMeta = null;
   setComposerEnabled(false);
   setPlanOpen(false);
   renderPlan(null);
+  hideAutoBar();
   ui.title.textContent = t("chat.welcomeTitle");
   ui.sub.textContent = t("chat.welcomeSub");
   ui.cwdChip.textContent = "未选择工作目录";
@@ -2673,7 +3211,10 @@ function appendTurn(role, text, { stream = false, clampable = true, images = [],
   }
 
   ui.inner.appendChild(turn);
-  if (!skipScroll) scrollThreadToBottom({ force: !stream });
+  if (!skipScroll) {
+    // User messages always snap to bottom; streams follow pin state
+    scrollThreadToBottom({ force: !stream || role === "user" });
+  }
   if (stream) streamingEl = body;
   return body;
 }
@@ -2896,7 +3437,7 @@ function appendTool(title) {
   chip.className = "tool-chip";
   chip.textContent = title || "tool";
   row.appendChild(chip);
-  ui.thread.scrollTop = ui.thread.scrollHeight;
+  scrollThreadToBottom({ force: threadFollowBottom });
 }
 
 function appendBanner(text, kind = "") {
@@ -2905,7 +3446,7 @@ function appendBanner(text, kind = "") {
   b.className = "banner" + (kind ? ` ${kind}` : "");
   b.textContent = text;
   ui.inner.appendChild(b);
-  ui.thread.scrollTop = ui.thread.scrollHeight;
+  scrollThreadToBottom({ force: threadFollowBottom });
 }
 
 function openLightbox(src) {
@@ -2950,23 +3491,49 @@ function renderHistory() {
   renderHistoryWithAssets(history, historyAssets, activeMeta);
 }
 
-function applyHeader(s) {
-  activeMeta = s || null;
-  if (s?.id) {
-    const st = ensureSessionUi(s.id);
+function applyHeader(s, opts = {}) {
+  if (!opts.soft) activeMeta = s || null;
+  else if (s) activeMeta = { ...(activeMeta || {}), ...s };
+  else activeMeta = s || null;
+
+  const meta = activeMeta;
+  if (meta?.id && !opts.soft) {
+    const st = ensureSessionUi(meta.id);
     const prevTitle = st.meta?.title;
-    st.meta = { ...(st.meta || {}), ...s };
+    st.meta = { ...(st.meta || {}), ...meta };
     // Only re-render tabs when title changes (avoid thrashing on status spam)
-    if (s.title && s.title !== prevTitle) renderTabs();
+    if (meta.title && meta.title !== prevTitle) renderTabs();
   }
-  ui.title.textContent = s?.title || "会话";
-  ui.sub.textContent = [s?.cwd, s?.model, s?.id ? s.id.slice(0, 8) + "…" : ""]
-    .filter(Boolean)
-    .join(" · ");
-  ui.cwdChip.textContent = shortPath(s?.cwd);
-  ui.cwdChip.title = s?.cwd || "";
-  ui.sessionActions.classList.toggle("hidden", !s?.id);
-  updateLiveStrip();
+  ui.title.textContent = meta?.title || (uiLocale() === "en" ? "Session" : "会话");
+
+  // Mac-style subtitle: path · absolute time · run duration
+  const en = uiLocale() === "en";
+  const bits = [];
+  if (meta?.cwd) bits.push(shortPath(meta.cwd));
+  if (meta?.updatedAt) {
+    const abs = formatAbsoluteTime(meta.updatedAt);
+    if (abs) bits.push(abs);
+  }
+  if (meta?.id && runStartedAt.has(meta.id)) {
+    const clock = formatElapsedClock(Date.now() - runStartedAt.get(meta.id));
+    bits.push(en ? `Processing ${clock}` : `处理中 ${clock}`);
+  } else if (meta?.id && lastRunDurationMs.has(meta.id)) {
+    const d = formatDuration(lastRunDurationMs.get(meta.id));
+    if (d) bits.push(en ? `Last run ${d}` : `本次用时 ${d}`);
+  } else if (meta?.model) {
+    bits.push(shortModelName(meta.model) || meta.model);
+  }
+  ui.sub.textContent = bits.join(" · ") || (en ? "Pick a session or start a new chat" : "选择左侧会话继续，或开始新对话");
+  if (meta?.updatedAt) ui.sub.title = formatFullDateTime(meta.updatedAt);
+
+  ui.cwdChip.textContent = shortPath(meta?.cwd);
+  ui.cwdChip.title = meta?.cwd || "";
+  ui.sessionActions.classList.toggle("hidden", !meta?.id);
+  if (!opts.soft) updateLiveStrip();
+  else {
+    // soft: only duration bits on strip
+    updateLiveStripDurationOnly();
+  }
 }
 
 // images
@@ -3149,6 +3716,7 @@ async function selectSession(sessionId) {
     stTarget.meta || sessions.find((x) => x.id === sessionId) || null;
   if (cachedMeta) applyHeader(cachedMeta);
   restoreComposer(sessionId);
+  restoreComposerModeForSession(sessionId);
   renderPlan(stTarget.plan);
   renderTabs();
 
@@ -3250,7 +3818,10 @@ async function selectSession(sessionId) {
     );
     setComposerEnabled(true);
     if (stTarget.models) setModelsState(stTarget.models);
-    if (stTarget.commands?.length) slashCommands = stTarget.commands;
+    if (commandsLookLocalized(stTarget.commands)) {
+      slashCommands = stTarget.commands;
+    }
+    renderAutoBar();
     ui.input.focus();
 
     // Silent focus in main — no "connecting…" status
@@ -3269,9 +3840,9 @@ async function selectSession(sessionId) {
         applyHeader(res.session);
         stTarget.meta = { ...(stTarget.meta || {}), ...res.session };
       }
-      if (res?.commands?.length) {
-        stTarget.commands = res.commands;
-        slashCommands = res.commands;
+      // Prefer IPC payload only when already localized (main.commandsForRenderer)
+      if (!applySlashCatalog(res?.commands, stTarget)) {
+        await refreshSlashCatalog(sessionId, stTarget, seq);
       }
       if (res?.models) {
         stTarget.models = res.models;
@@ -3280,6 +3851,7 @@ async function selectSession(sessionId) {
       if (res?.openIds) liveAgents = new Set(res.openIds);
       else liveAgents.add(sessionId);
       renderTabs();
+      renderAutoBar();
     } catch {
       /* soft failures ignored — UI already usable */
     }
@@ -3343,9 +3915,8 @@ async function selectSession(sessionId) {
     }
     if (res?.openIds) liveAgents = new Set(res.openIds);
     else liveAgents.add(sessionId);
-    if (res?.commands?.length) {
-      stTarget.commands = res.commands;
-      slashCommands = res.commands;
+    if (!applySlashCatalog(res?.commands, stTarget)) {
+      await refreshSlashCatalog(sessionId, stTarget, seq);
     }
     if (res?.models) {
       stTarget.models = res.models;
@@ -3367,18 +3938,8 @@ async function selectSession(sessionId) {
     connecting = false;
     setBusy(workingSessions.has(sessionId));
     setComposerEnabled(true);
-    if (!res?.commands?.length) {
-      try {
-        const cl = await grokDesktop.listCommands(sessionId);
-        if (cl?.commands?.length) {
-          stTarget.commands = cl.commands;
-          slashCommands = cl.commands;
-        }
-      } catch {
-        /* ignore */
-      }
-    }
     renderPlan(stTarget.plan);
+    renderAutoBar();
     ui.input.focus();
   } catch (err) {
     if (seq !== openSeq) return;
@@ -3503,6 +4064,7 @@ async function interruptAndSend({ text, images, files }) {
 
   promptInFlight.delete(sid);
   workingSessions.delete(sid);
+  markRunEnd(sid);
 
   await new Promise((r) => setTimeout(r, 200));
   if (myGen !== sendGeneration) return;
@@ -3630,6 +4192,16 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
   st.streamingEl = null;
   if (isActive) streamingEl = null;
 
+  // Track Goal / Loop from what the user actually sent; keep mode bar in sync
+  const slashHead = String(text || "")
+    .trim()
+    .match(/^\/(goal|loop|plan)\b([\s\S]*)/i);
+  if (slashHead) {
+    const cmd = slashHead[1].toLowerCase();
+    noteAutomationFromSlash(cmd, (slashHead[2] || "").trim());
+    if (isActive && (cmd === "goal" || cmd === "plan")) paintComposerMode(cmd);
+  }
+
   // 仍有旧轮在飞且非引导路径：改排队，等用户点「引导」
   if (promptInFlight.has(sentTo) && generation == null) {
     if (isActive) enqueueFollowUp({ text, images, files });
@@ -3638,6 +4210,7 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
 
   promptInFlight.add(sentTo);
   workingSessions.add(sentTo);
+  markRunStart(sentTo);
   everWorkedSessions.add(sentTo);
   doneSessions.delete(sentTo);
   scheduleRenderTabs(true);
@@ -3645,7 +4218,17 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
   if (isActive) {
     setBusy(true);
     setStatus("working", "思考中…");
+    refreshWorkingStatusClock();
     refreshSendButtonState();
+    updateLiveStrip();
+    threadFollowBottom = true;
+    scrollThreadToBottom({ force: true });
+    setActivityRail({
+      main: uiLocale() === "en" ? "… Starting turn" : "… 开始处理",
+      sub: (text || "").slice(0, 80),
+      active: true,
+      log: true,
+    });
   }
   try {
     await grokDesktop.prompt({
@@ -3682,6 +4265,7 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
     }
     promptInFlight.delete(sentTo);
     workingSessions.delete(sentTo);
+    markRunEnd(sentTo);
     // 跑完打绿点；点开该会话时再清
     doneSessions.add(sentTo);
     everWorkedSessions.delete(sentTo);
@@ -3690,7 +4274,18 @@ async function sendNow({ text, images, files, sessionId = null, generation = nul
       if (!(st.messageQueue?.length || (activeId === sentTo && messageQueue.length))) {
         setBusy(false);
       }
-      setStatus("ready", "已完成");
+      const dur = lastRunDurationMs.get(sentTo);
+      const durLabel = dur != null ? formatDuration(dur) : "";
+      setStatus(
+        "ready",
+        durLabel
+          ? uiLocale() === "en"
+            ? `Done · ${durLabel}`
+            : `已完成 · 用时 ${durLabel}`
+          : "已完成",
+      );
+      updateLiveStrip();
+      if (activeMeta) applyHeader(activeMeta, { soft: true });
     } else if (desktopSettings.notifyOnDone !== false) {
       const title =
         sessions.find((x) => x.id === sentTo)?.title ||
@@ -3862,6 +4457,9 @@ grokDesktop.onPlan?.((update) => {
       // auto-show once when first plan arrives
       setPlanOpen(true);
     }
+    if (normalizePlanEntries(update).length) paintComposerMode("plan");
+  } else if (normalizePlanEntries(update).length) {
+    st.composerMode = "plan";
   }
   renderTabs();
 });
@@ -3885,6 +4483,7 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
     }
     if (state === "working") {
       workingSessions.add(sid);
+      markRunStart(sid);
       everWorkedSessions.add(sid);
       doneSessions.delete(sid);
     } else if (state === "ready" || state === "error" || state === "disconnected") {
@@ -3892,6 +4491,7 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
       if (!promptInFlight.has(sid)) {
         const wasWorking = workingSessions.has(sid) || everWorkedSessions.has(sid);
         workingSessions.delete(sid);
+        if (wasWorking) markRunEnd(sid);
         // 跑完 → 绿点（当前会话也显示，点开/再点一次清）
         if (wasWorking && (state === "ready" || state === "error")) {
           doneSessions.add(sid);
@@ -3934,11 +4534,35 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
       if (state) setStatus(state, detail);
       setBusy(true);
       refreshSendButtonState();
+      if (!$("activity-rail") || $("activity-rail").classList.contains("hidden")) {
+        setActivityRail({
+          main: uiLocale() === "en" ? "… Working" : "… 处理中",
+          sub: detail || "",
+          active: true,
+          log: false,
+        });
+      }
     } else if (state === "ready" || state === "error" || state === "disconnected") {
       if (!promptInFlight.has(sid || activeId)) {
         if (state) setStatus(state, detail);
         setBusy(false);
         refreshSendButtonState();
+        if (state === "ready") {
+          setActivityRail({
+            main: uiLocale() === "en" ? "✓ Done" : "✓ 本轮完成",
+            active: false,
+            log: false,
+          });
+          clearActivityRailSoon();
+        } else if (state === "error") {
+          setActivityRail({
+            main: uiLocale() === "en" ? "✕ Error" : "✕ 出错了",
+            sub: detail || "",
+            active: false,
+            log: false,
+          });
+          clearActivityRailSoon();
+        }
       }
     } else if (state) {
       setStatus(state, detail);
@@ -3952,7 +4576,6 @@ grokDesktop.onStatus(({ state, detail, session, sessionId }) => {
 
 // Plan panel toggles
 ui.planToggle?.addEventListener("click", () => setPlanOpen(!planOpen));
-$("btn-plan-toggle-strip")?.addEventListener("click", () => setPlanOpen(!planOpen));
 ui.planClose?.addEventListener("click", () => setPlanOpen(false));
 
 // Access mode cards
@@ -4306,7 +4929,9 @@ async function loadSettings() {
     if ($("set-notify-done")) $("set-notify-done").checked = desktopSettings.notifyOnDone !== false;
     if ($("set-check-updates")) $("set-check-updates").checked = desktopSettings.checkUpdates !== false;
     if ($("set-density")) $("set-density").value = desktopSettings.density || "comfortable";
+    if ($("set-theme")) $("set-theme").value = desktopSettings.theme || "dark";
     applyDensity(desktopSettings.density);
+    applyTheme(desktopSettings.theme);
     applyWallpaper();
 
     const grok = s.grok || {};
@@ -4325,6 +4950,8 @@ async function loadSettings() {
     if ($("set-grok-home")) $("set-grok-home").textContent = s.grokHome || info.grokHome || "—";
     if ($("set-config-path")) $("set-config-path").textContent = grok.path || "—";
     if ($("set-desktop-ver")) $("set-desktop-ver").textContent = info.desktopVersion || "—";
+    // Refresh health card whenever settings open
+    void runDiagnose().then((d) => renderCliHealth(d)).catch(() => {});
 
     // default model dropdown
     const sel = $("set-model");
@@ -4361,6 +4988,43 @@ async function loadSettings() {
 
 function applyDensity(d) {
   document.body.classList.toggle("compact", d === "compact");
+}
+
+/** Resolve effective theme: dark | light (system → prefers-color-scheme). */
+function resolveTheme(pref) {
+  const p = pref === "light" || pref === "system" || pref === "dark" ? pref : "dark";
+  if (p === "system") {
+    try {
+      return window.matchMedia?.("(prefers-color-scheme: light)")?.matches
+        ? "light"
+        : "dark";
+    } catch {
+      return "dark";
+    }
+  }
+  return p;
+}
+
+function applyTheme(pref) {
+  const mode = resolveTheme(pref || desktopSettings.theme || "dark");
+  document.body.classList.remove("theme-dark", "theme-light");
+  document.body.classList.add(mode === "light" ? "theme-light" : "theme-dark");
+  try {
+    document.documentElement.style.colorScheme = mode;
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Persist theme immediately so switch feels instant without full Save. */
+async function persistTheme(theme) {
+  desktopSettings.theme = theme;
+  applyTheme(theme);
+  try {
+    await grokDesktop.saveDesktopSettings({ theme });
+  } catch {
+    /* ignore */
+  }
 }
 
 const WALLPAPER_GRADIENTS = {
@@ -4573,6 +5237,7 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       notifyOnDone: !!$("set-notify-done")?.checked,
       checkUpdates: !!$("set-check-updates")?.checked,
       density: $("set-density")?.value || "comfortable",
+      theme: $("set-theme")?.value || desktopSettings.theme || "dark",
       autoApprove: mapped.autoApprove,
       accessMode: mapped.accessMode,
       locale,
@@ -4583,6 +5248,7 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       setupDismissed: desktopSettings.setupDismissed,
     });
     applyDensity(desktopSettings.density);
+    applyTheme(desktopSettings.theme);
     applyWallpaper();
     applyLocale(locale);
     setAccessModeUi(mapped.accessMode);
@@ -4609,7 +5275,310 @@ $("btn-settings-save")?.addEventListener("click", async () => {
   }
 });
 
+// ── Automation bar (Goal / Loop visibility) ────────────
+
+/** @type {Map<string, { kind: 'goal'|'loop', label: string, at: number }>} */
+const sessionAutomation = new Map();
+
+function setSessionAutomation(sid, kind, label) {
+  if (!sid || !kind) return;
+  sessionAutomation.set(sid, {
+    kind,
+    label: label || kind,
+    at: Date.now(),
+  });
+  if (sid === activeId) renderAutoBar();
+}
+
+function clearSessionAutomation(sid) {
+  if (sid) sessionAutomation.delete(sid);
+  if (!sid || sid === activeId) renderAutoBar();
+}
+
+function hideAutoBar() {
+  $("auto-bar")?.classList.add("hidden");
+}
+
+function renderAutoBar() {
+  const bar = $("auto-bar");
+  const text = $("auto-bar-text");
+  if (!bar || !text) return;
+  if (!activeId) {
+    bar.classList.add("hidden");
+    return;
+  }
+  const info = sessionAutomation.get(activeId);
+  if (!info) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  const en = uiLocale() === "en";
+  if (info.kind === "goal") {
+    text.textContent = en
+      ? `Goal active · ${info.label}`
+      : `目标进行中 · ${info.label}`;
+  } else {
+    text.textContent = en
+      ? `Loop scheduled · ${info.label}`
+      : `循环任务 · ${info.label}`;
+  }
+  bar.dataset.kind = info.kind;
+}
+
+function noteAutomationFromSlash(name, rawArgs) {
+  if (!activeId) return;
+  const n = String(name || "").replace(/^\//, "");
+  const args = String(rawArgs || "").trim();
+  if (n === "goal") {
+    if (/^clear$/i.test(args)) {
+      clearSessionAutomation(activeId);
+      paintComposerMode("task");
+      return;
+    }
+    if (!args || /^(status|pause|resume)$/i.test(args)) {
+      if (!sessionAutomation.has(activeId)) {
+        setSessionAutomation(activeId, "goal", args || "goal");
+      } else {
+        renderAutoBar();
+      }
+      paintComposerMode("goal");
+      return;
+    }
+    setSessionAutomation(activeId, "goal", args.slice(0, 80));
+    paintComposerMode("goal");
+  } else if (n === "loop") {
+    setSessionAutomation(activeId, "loop", args.slice(0, 80) || "loop");
+  } else if (n === "plan") {
+    paintComposerMode("plan");
+  }
+}
+
+// ── Composer work mode (Goal / Task / Plan) — compact popover next to effort ──
+
+const MODE_OPTIONS = [
+  { id: "goal", ico: "◎", titleKey: "mode.goal", shortKey: "mode.goalShort", descKey: "mode.goalDesc" },
+  { id: "task", ico: "⚡", titleKey: "mode.task", shortKey: "mode.taskShort", descKey: "mode.taskDesc" },
+  { id: "plan", ico: "💡", titleKey: "mode.plan", shortKey: "mode.planShort", descKey: "mode.planDesc" },
+];
+
+function modeShortLabel(mode) {
+  const id = mode === "goal" || mode === "plan" ? mode : "task";
+  const key = id === "goal" ? "mode.goalShort" : id === "plan" ? "mode.planShort" : "mode.taskShort";
+  if (typeof t === "function") {
+    const v = t(key);
+    if (v && v !== key) return v;
+  }
+  return id === "goal" ? "目标" : id === "plan" ? "计划" : "任务";
+}
+
+function paintComposerMode(mode) {
+  const next = mode === "goal" || mode === "plan" ? mode : "task";
+  composerMode = next;
+  if (activeId) {
+    const st = ensureSessionUi(activeId);
+    st.composerMode = next;
+  }
+  if (ui.modeLabel) ui.modeLabel.textContent = modeShortLabel(next);
+  if (ui.modeBtn) {
+    const opt = MODE_OPTIONS.find((m) => m.id === next);
+    const title =
+      typeof t === "function" && opt
+        ? `${t(opt.titleKey)} — ${t(opt.descKey)}`
+        : next;
+    ui.modeBtn.title = title;
+    ui.modeBtn.setAttribute("aria-label", title);
+  }
+  // Reflect selection inside open popover
+  if (ui.modePop && !ui.modePop.classList.contains("hidden")) renderModePop();
+}
+
+function renderModePop() {
+  if (!ui.modePop) return;
+  ui.modePop.replaceChildren();
+  for (const m of MODE_OPTIONS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "model-item" + (m.id === composerMode ? " active" : "");
+    btn.setAttribute("role", "option");
+    btn.setAttribute("aria-selected", m.id === composerMode ? "true" : "false");
+    btn.dataset.mode = m.id;
+    const title = typeof t === "function" ? t(m.titleKey) : m.id;
+    const desc = typeof t === "function" ? t(m.descKey) : "";
+    btn.title = desc || title;
+    btn.innerHTML = `<span class="mid">${m.ico} ${title}</span>`;
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      closeModePop();
+      void setComposerMode(m.id);
+    };
+    ui.modePop.appendChild(btn);
+  }
+}
+
+function openModePop() {
+  modeOpen = true;
+  modelOpen = false;
+  effortOpen = false;
+  ui.modelPop?.classList.add("hidden");
+  ui.effortPop?.classList.add("hidden");
+  hideSlash();
+  renderModePop();
+  ui.modePop?.classList.remove("hidden");
+}
+
+function closeModePop() {
+  modeOpen = false;
+  ui.modePop?.classList.add("hidden");
+}
+
+function toggleModePop() {
+  if (modeOpen) closeModePop();
+  else openModePop();
+}
+
+ui.modeBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleModePop();
+});
+
+/**
+ * Switch work mode. Goal prepares /goal in the box; Plan enters agent plan mode.
+ * Task is the default execute-and-edit path.
+ * @param {"goal"|"task"|"plan"} mode
+ * @param {{ silent?: boolean }} [opts]
+ */
+async function setComposerMode(mode, { silent = false } = {}) {
+  const next = mode === "goal" || mode === "plan" ? mode : "task";
+  if (!silent && !activeId) {
+    appendBanner(t("mode.needSession"), "error");
+    return;
+  }
+  paintComposerMode(next);
+  if (silent) return;
+
+  if (next === "goal") {
+    const cur = String(ui.input?.value || "").trim();
+    if (!cur || /^\/goal\b/i.test(cur)) {
+      insertSlashIntoComposer("/goal ");
+    }
+    appendBanner(t("mode.goalHint"));
+  } else if (next === "plan") {
+    setPlanOpen(true);
+    appendBanner(t("mode.planEntered"));
+    try {
+      await runRealSlash("plan", "");
+    } catch {
+      /* runRealSlash already surfaces errors */
+    }
+  } else {
+    if (/^\/goal\s*$/i.test(String(ui.input?.value || "").trim())) {
+      ui.input.value = "";
+      autosize();
+      updateSlashFromInput?.();
+    }
+  }
+}
+
+function restoreComposerModeForSession(sessionId) {
+  if (!sessionId) {
+    paintComposerMode("task");
+    return;
+  }
+  const st = ensureSessionUi(sessionId);
+  if (st.composerMode === "goal" || st.composerMode === "plan" || st.composerMode === "task") {
+    paintComposerMode(st.composerMode);
+    return;
+  }
+  // Infer from automation / plan panel content
+  const auto = sessionAutomation.get(sessionId);
+  if (auto?.kind === "goal") {
+    paintComposerMode("goal");
+    return;
+  }
+  if (normalizePlanEntries(st.plan).length) {
+    paintComposerMode("plan");
+    return;
+  }
+  paintComposerMode("task");
+}
+
+function insertSlashIntoComposer(prefix) {
+  switchView("chat");
+  if (!activeId) {
+    appendBanner(
+      uiLocale() === "en"
+        ? "Open or create a chat first, then use /goal or /loop"
+        : "请先打开或新建对话，再使用 /goal 或 /loop",
+      "error",
+    );
+    return;
+  }
+  ui.input.value = prefix;
+  ui.input.disabled = false;
+  setComposerEnabled(true);
+  ui.input.focus();
+  const len = ui.input.value.length;
+  ui.input.setSelectionRange(len, len);
+  autosize();
+  updateSlashFromInput();
+}
+
+function handleWelcomeAuto(kind) {
+  if (kind === "skills") {
+    switchView("skills");
+    return;
+  }
+  if (kind === "hooks") {
+    switchView("settings");
+    showSettingsPanel("automation");
+    return;
+  }
+  if (kind === "goal") {
+    insertSlashIntoComposer("/goal ");
+    return;
+  }
+  if (kind === "loop") {
+    insertSlashIntoComposer("/loop ");
+  }
+}
+
 // ── Slash command palette (/) ──────────────────────────
+
+/**
+ * True when catalog went through main localizeAll / commandsForRenderer
+ * (titleZh/group present). Raw ACP is only { name, description, _meta? }.
+ */
+function commandsLookLocalized(cmds) {
+  if (!Array.isArray(cmds) || !cmds.length) return false;
+  return cmds.some(
+    (c) =>
+      c &&
+      (typeof c.titleZh === "string" ||
+        typeof c.group === "string" ||
+        c.desktop === true ||
+        c.isSkill === true),
+  );
+}
+
+/** Apply localized slash catalog into session state + live palette. */
+function applySlashCatalog(cmds, stTarget) {
+  if (!commandsLookLocalized(cmds)) return false;
+  if (stTarget) stTarget.commands = cmds;
+  slashCommands = cmds;
+  return true;
+}
+
+/** Fallback: commands:list (always localizeAll on main). */
+async function refreshSlashCatalog(sessionId, stTarget, seq) {
+  try {
+    const cl = await grokDesktop.listCommands(sessionId);
+    if (seq != null && seq !== openSeq) return false;
+    return applySlashCatalog(cl?.commands, stTarget);
+  } catch {
+    return false;
+  }
+}
 
 function hideSlash() {
   slashOpen = false;
@@ -4622,34 +5591,14 @@ function hideSlash() {
 }
 
 function filterSlash(query) {
-  const q = (query || "").toLowerCase().replace(/^\//, "");
-  const list = slashCommands.length
-    ? slashCommands
-    : []; // filled from ACP; also inject desktop locals
-  const locals = [
-    {
-      name: "settings",
-      titleZh: "设置",
-      descZh: "打开桌面端设置",
-      description: "settings",
-      isSkill: false,
-      desktopOnly: true,
-    },
-    {
-      name: "status",
-      titleZh: "当前状态",
-      descZh: "连接、会话、模型与记忆开关",
-      description: "status",
-      isSkill: false,
-      desktopOnly: true,
-    },
-  ];
-  const merged = [...list];
-  for (const l of locals) {
-    if (!merged.some((c) => c.name === l.name)) merged.push(l);
+  const list = slashCommands.length ? slashCommands : [];
+  // Prefer shipped pure helper (preload); fallback keeps palette usable offline.
+  if (typeof grokDesktop.filterSlashCommands === "function") {
+    return grokDesktop.filterSlashCommands(list, query, { limit: 40 });
   }
-  if (!q) return merged.slice(0, 40);
-  return merged
+  const q = (query || "").toLowerCase().replace(/^\//, "");
+  if (!q) return list.slice(0, 40);
+  return list
     .filter((c) => {
       const hay = `${c.name} ${c.titleZh || ""} ${c.descZh || ""} ${c.description || ""}`.toLowerCase();
       return hay.includes(q);
@@ -4657,40 +5606,99 @@ function filterSlash(query) {
     .slice(0, 40);
 }
 
+function slashGroupTitle(group, meta) {
+  const loc = window.GrokI18n?.getLocale?.() || "zh";
+  if (meta) return loc === "en" ? meta.titleEn || meta.titleZh : meta.titleZh || meta.titleEn;
+  try {
+    const all = grokDesktop.slashGroupMeta?.() || {};
+    const m = all[group];
+    if (m) return loc === "en" ? m.titleEn : m.titleZh;
+  } catch {
+    /* ignore */
+  }
+  return group;
+}
+
 function renderSlashMenu() {
   if (!ui.slashMenu) return;
   ui.slashMenu.replaceChildren();
   if (!slashFiltered.length) {
-    ui.slashMenu.innerHTML =
-      '<div class="slash-empty">无匹配命令 · 连接会话后会加载 CLI 全部 / 命令与 Skills</div>';
+    const empty = document.createElement("div");
+    empty.className = "slash-empty";
+    empty.textContent =
+      typeof t === "function"
+        ? t("slash.empty")
+        : "无匹配命令 · 连接会话后会加载 CLI 全部 / 命令与 Skills";
+    ui.slashMenu.appendChild(empty);
     ui.slashMenu.classList.remove("hidden");
     slashOpen = true;
     return;
   }
-  slashFiltered.forEach((cmd, i) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "slash-item" + (i === slashIndex ? " active" : "");
-    btn.innerHTML = `
-      <span class="cmd"></span>
-      <span class="title"></span>
-      <span class="badge-skill"></span>
-      <span class="desc"></span>`;
-    btn.querySelector(".cmd").textContent = `/${cmd.name}`;
-    btn.querySelector(".title").textContent = cmd.titleZh || cmd.name;
-    const badge = btn.querySelector(".badge-skill");
-    if (cmd.isSkill) badge.textContent = "Skill";
-    else badge.remove();
-    btn.querySelector(".desc").textContent = cmd.descZh || cmd.description || "";
-    btn.onmousedown = (e) => {
-      e.preventDefault();
-      applySlash(cmd);
-    };
-    ui.slashMenu.appendChild(btn);
-  });
+
+  const groups =
+    typeof grokDesktop.groupSlashCommands === "function"
+      ? grokDesktop.groupSlashCommands(slashFiltered)
+      : [{ group: "all", titleZh: "", titleEn: "", items: slashFiltered }];
+
+  // Flat index across groups for keyboard selection
+  let flatIdx = 0;
+  for (const g of groups) {
+    if (g.titleZh || g.titleEn) {
+      const head = document.createElement("div");
+      head.className = "slash-group";
+      head.textContent = slashGroupTitle(g.group, g);
+      ui.slashMenu.appendChild(head);
+    }
+    for (const cmd of g.items) {
+      const i = flatIdx++;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "slash-item" + (i === slashIndex ? " active" : "");
+      btn.setAttribute("role", "option");
+      btn.setAttribute("aria-selected", i === slashIndex ? "true" : "false");
+
+      const cmdEl = document.createElement("span");
+      cmdEl.className = "cmd";
+      cmdEl.textContent = `/${cmd.name}`;
+
+      const titleEl = document.createElement("span");
+      titleEl.className = "title";
+      titleEl.textContent = cmd.titleZh || cmd.name;
+
+      const descEl = document.createElement("span");
+      descEl.className = "desc";
+      descEl.textContent = cmd.descZh || cmd.description || "";
+
+      btn.appendChild(cmdEl);
+      btn.appendChild(titleEl);
+
+      const desktopRoute =
+        typeof grokDesktop.resolveDesktopRoute === "function"
+          ? grokDesktop.resolveDesktopRoute(cmd.name, !!cmd.isSkill)
+          : null;
+      if (cmd.isSkill) {
+        const badge = document.createElement("span");
+        badge.className = "slash-badge badge-skill";
+        badge.textContent = typeof t === "function" ? t("slash.badgeSkill") : "Skill";
+        btn.appendChild(badge);
+      } else if (desktopRoute) {
+        const badge = document.createElement("span");
+        badge.className = "slash-badge badge-desktop";
+        badge.textContent = typeof t === "function" ? t("slash.badgeDesktop") : "桌面";
+        btn.appendChild(badge);
+      }
+
+      btn.appendChild(descEl);
+      btn.onmousedown = (e) => {
+        e.preventDefault();
+        applySlash(cmd);
+      };
+      ui.slashMenu.appendChild(btn);
+    }
+  }
+
   ui.slashMenu.classList.remove("hidden");
   slashOpen = true;
-  // scroll active into view
   const active = ui.slashMenu.querySelector(".slash-item.active");
   active?.scrollIntoView({ block: "nearest" });
 }
@@ -4710,77 +5718,70 @@ function updateSlashFromInput() {
 
 /**
  * Desktop-local routes vs real agent slash commands.
+ * Pure UI routes use DESKTOP_UI_ROUTES from commands-zh (via preload) and never
+ * send a fake agent prompt for those slash names.
  * Skills and CLI builtins always hit the live agent (no placeholders).
  */
 function applySlash(cmd) {
   hideSlash();
   if (!cmd) return;
   const name = cmd.name;
+  const route =
+    typeof grokDesktop.resolveDesktopRoute === "function"
+      ? grokDesktop.resolveDesktopRoute(name, !!cmd.isSkill)
+      : null;
 
-  // Pure UI navigation / local actions
-  if (name === "settings" || name === "desktop") {
+  if (route && !cmd.isSkill) {
     ui.input.value = "";
-    switchView("settings");
-    return;
-  }
-  if (name === "skills" && !cmd.isSkill) {
-    ui.input.value = "";
-    switchView("skills");
-    return;
-  }
-  if ((name === "plugins" || name === "marketplace") && !cmd.isSkill) {
-    ui.input.value = "";
-    switchView(name === "marketplace" ? "plugins" : "plugins");
-    return;
-  }
-  if (name === "mcps") {
-    ui.input.value = "";
-    switchView("settings");
-    showSettingsPanel("mcp");
-    return;
-  }
-  if (name === "memory" && !cmd.isSkill) {
-    ui.input.value = "";
-    switchView("memory");
-    return;
-  }
-  if (name === "new" || name === "clear") {
-    ui.input.value = "";
-    void newSession();
-    return;
-  }
-  if (name === "home" || name === "welcome") {
-    ui.input.value = "";
-    showWelcome();
-    setStatus("idle", "就绪");
-    return;
-  }
-  if (name === "rename" || name === "title") {
-    ui.input.value = "";
-    ui.rename?.click();
-    return;
-  }
-  if (name === "export") {
-    ui.input.value = "";
-    $("btn-act-export")?.click();
-    return;
-  }
-  if (name === "copy") {
-    ui.input.value = "";
-    // copy last assistant message from DOM
-    const msgs = [...ui.inner.querySelectorAll(".turn.assistant .body")];
-    const last = msgs[msgs.length - 1];
-    if (last?.textContent) {
-      navigator.clipboard?.writeText(last.textContent);
-      appendBanner("已复制最近一条回复");
-    } else {
-      void runRealSlash("copy");
+    switch (route) {
+      case "open-settings":
+        switchView("settings");
+        return;
+      case "open-skills":
+        switchView("skills");
+        return;
+      case "open-plugins":
+        switchView("plugins");
+        return;
+      case "open-mcp":
+        switchView("settings");
+        showSettingsPanel("mcp");
+        return;
+      case "open-memory":
+        switchView("memory");
+        return;
+      case "new-session":
+        void newSession();
+        return;
+      case "home":
+        showWelcome();
+        setStatus("idle", typeof t === "function" ? t("status.idle") : "就绪");
+        return;
+      case "rename":
+        ui.rename?.click();
+        return;
+      case "export":
+        $("btn-act-export")?.click();
+        return;
+      case "copy-last": {
+        const msgs = [...ui.inner.querySelectorAll(".turn.assistant .body")];
+        const last = msgs[msgs.length - 1];
+        if (last?.textContent) {
+          navigator.clipboard?.writeText(last.textContent);
+          appendBanner(typeof t === "function" ? t("slash.copied") : "已复制最近一条回复");
+        } else {
+          void runRealSlash("copy");
+        }
+        return;
+      }
+      default:
+        break;
     }
-    return;
   }
-  if (name === "status") {
+
+  // Hybrid desktop status → real session-info on agent
+  if (name === "status" && !cmd.isSkill) {
     ui.input.value = "";
-    // real CLI info via agent
     void runRealSlash("session-info");
     return;
   }
@@ -4893,6 +5894,7 @@ ui.cancel.addEventListener("click", async () => {
   }
   // 立刻让界面可插话/可发送，不必等 CLI 回调
   workingSessions.delete(sid);
+  markRunEnd(sid);
   const st = ensureSessionUi(sid);
   st.statusState = "ready";
   st.statusDetail = "已停止";
@@ -4904,7 +5906,19 @@ ui.cancel.addEventListener("click", async () => {
   st.streamingEl = null;
   streamingEl = null;
   setBusy(false);
-  setStatus("ready", "已停止");
+  const dur = lastRunDurationMs.get(sid);
+  const durLabel = dur != null ? formatDuration(dur) : "";
+  setStatus(
+    "ready",
+    durLabel
+      ? uiLocale() === "en"
+        ? `Stopped · ${durLabel}`
+        : `已停止 · 用时 ${durLabel}`
+      : "已停止",
+  );
+  updateLiveStrip();
+  if (activeMeta) applyHeader(activeMeta, { soft: true });
+  refreshSidebarSessionState();
   scheduleRenderTabs(true);
   appendBanner(
     messageQueue.length
@@ -5090,17 +6104,132 @@ document.addEventListener("keydown", (e) => {
 
 // ── 环境诊断 / 首次引导 / 更新 ─────────────────────────
 
+/** Last diagnose payload (for copy path / settings health card). */
+let lastCliDiag = null;
+
 async function runDiagnose() {
   try {
-    return await grokDesktop.diagnose();
+    const d = await grokDesktop.diagnose();
+    lastCliDiag = d;
+    return d;
   } catch (err) {
-    return {
+    const d = {
       ok: false,
       cliExists: false,
       loggedIn: false,
       authHint: err.message || String(err),
       installHint: "无法完成检测",
     };
+    lastCliDiag = d;
+    return d;
+  }
+}
+
+/**
+ * Paint Settings → Environment health card + sidebar CLI chip.
+ * Shell-first UX: users shouldn't need a terminal to know if things work.
+ */
+function renderCliHealth(diag) {
+  if (!diag) return;
+  lastCliDiag = diag;
+
+  const state = !diag.cliExists
+    ? "bad"
+    : !diag.loggedIn
+      ? "warn"
+      : "ok";
+
+  const pill = $("cli-health-pill");
+  if (pill) {
+    pill.dataset.state = state;
+    pill.textContent =
+      state === "ok"
+        ? t("settings.cliHealthOk")
+        : state === "warn"
+          ? t("settings.cliHealthWarn")
+          : t("settings.cliHealthBad");
+  }
+
+  const summary = $("cli-health-summary");
+  if (summary) {
+    summary.textContent =
+      state === "ok"
+        ? t("settings.cliHealthDesc")
+        : state === "warn"
+          ? diag.loginHint || diag.authHint || t("settings.cliHealthWarn")
+          : diag.installHint || t("settings.cliHealthBad");
+  }
+
+  const setItem = (key, itemState, detail) => {
+    const li = document.querySelector(`.health-item[data-key="${key}"]`);
+    if (li) li.dataset.state = itemState;
+    const p = $(
+      key === "cli"
+        ? "cli-health-cli-detail"
+        : key === "login"
+          ? "cli-health-login-detail"
+          : "cli-health-desktop-detail",
+    );
+    if (p) p.textContent = detail || "—";
+  };
+
+  setItem(
+    "cli",
+    diag.cliExists ? "ok" : "bad",
+    diag.cliExists
+      ? `${diag.cli || "grok"}${diag.cliVersion ? " · " + diag.cliVersion : ""}`
+      : "未找到 grok 可执行文件",
+  );
+  setItem(
+    "login",
+    diag.loggedIn ? "ok" : diag.cliExists ? "warn" : "bad",
+    diag.authHint || (diag.loggedIn ? "已登录" : "未登录"),
+  );
+  setItem(
+    "desktop",
+    "ok",
+    diag.desktopVersion ? `v${diag.desktopVersion}` : "—",
+  );
+
+  const hint = $("cli-health-hint");
+  if (hint) {
+    const lines = [];
+    if (diag.installHint) lines.push(diag.installHint);
+    if (diag.loginHint) lines.push(diag.loginHint);
+    if (diag.ok) lines.push(t("settings.cliHealthOk") + " — 可以开始新对话。");
+    hint.textContent = lines.join("\n");
+  }
+
+  // Path rows
+  if ($("set-cli") && diag.cli) $("set-cli").textContent = diag.cli;
+  if ($("set-grok-home") && diag.grokHome)
+    $("set-grok-home").textContent = diag.grokHome;
+  if ($("set-desktop-ver") && diag.desktopVersion)
+    $("set-desktop-ver").textContent = diag.desktopVersion;
+
+  // Sidebar chip
+  if (ui.cliInfo) {
+    ui.cliInfo.dataset.state = state;
+    if (!diag.cliExists) {
+      ui.cliInfo.textContent = "未检测到 grok CLI";
+      ui.cliInfo.title =
+        (diag.installHint || "") + "\n" + t("settings.cliHealthDesc");
+    } else {
+      const ver = diag.cliVersion ? String(diag.cliVersion).replace(/^v/i, "") : "";
+      ui.cliInfo.textContent = ver
+        ? `CLI 就绪 · ${ver}`
+        : diag.loggedIn
+          ? "CLI 就绪"
+          : "CLI 已找到 · 未登录";
+      ui.cliInfo.title = [
+        `CLI: ${diag.cli}`,
+        diag.authHint || "",
+        `Home: ${diag.grokHome || ""}`,
+        "点击查看环境健康",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
   }
 }
 
@@ -5144,16 +6273,7 @@ async function showSetupIfNeeded(force = false) {
   const overlay = $("setup-overlay");
   if (!overlay) return;
   const diag = await runDiagnose();
-  // 更新侧栏 CLI 信息
-  if (ui.cliInfo) {
-    if (!diag.cliExists) {
-      ui.cliInfo.textContent = "未检测到 grok CLI";
-      ui.cliInfo.title = diag.installHint || "";
-    } else {
-      ui.cliInfo.textContent = `${diag.cli || "grok"} · v${diag.desktopVersion || "0.7"}`;
-      ui.cliInfo.title = `CLI: ${diag.cli}\n${diag.authHint || ""}\nHome: ${diag.grokHome || ""}`;
-    }
-  }
+  renderCliHealth(diag);
   // 首次必出；之后仅 CLI 缺失或手动「环境检测」时再弹（登录缺失不反复打断）
   const need =
     force || !desktopSettings.setupDismissed || !diag.cliExists;
@@ -5183,9 +6303,10 @@ async function checkForUpdates(manual = false) {
     if (desc && manual) desc.textContent = t("update.checking");
     const r = await grokDesktop.checkUpdate();
     if (!r?.ok) {
+      const error = r?.errorCode === "timeout" ? t("update.timeout") : r?.error || "network";
       if (desc)
         desc.textContent = manual
-          ? t("update.fail", { error: r?.error || "network" })
+          ? t("update.fail", { error })
           : desc.textContent;
       return;
     }
@@ -5250,6 +6371,56 @@ $("btn-run-diagnose")?.addEventListener("click", async () => {
     if (desc) desc.textContent = "环境正常：CLI 与登录均已就绪";
   }
 });
+$("btn-health-recheck")?.addEventListener("click", async () => {
+  const btn = $("btn-health-recheck");
+  const pill = $("cli-health-pill");
+  if (pill) {
+    pill.dataset.state = "unknown";
+    pill.textContent = t("settings.cliHealthChecking");
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const diag = await runDiagnose();
+    renderCliHealth(diag);
+    renderSetupChecks(diag);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+$("btn-health-cli-doc")?.addEventListener("click", () => {
+  void grokDesktop.openExternal?.("https://x.ai/cli");
+});
+$("btn-health-copy-path")?.addEventListener("click", async () => {
+  const path = lastCliDiag?.cli || $("set-cli")?.textContent || "";
+  const hint = $("cli-health-hint");
+  if (!path || path === "—") {
+    if (hint) hint.textContent = t("settings.cliHealthNoPath");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(path);
+    if (hint) hint.textContent = t("settings.cliHealthCopied") + "：\n" + path;
+  } catch {
+    if (hint) hint.textContent = path;
+  }
+});
+// Sidebar footer: click → jump to Environment settings + refresh health
+ui.cliInfo?.addEventListener("click", async () => {
+  try {
+    // Switch to settings about section if nav exists
+    $("nav-settings")?.click();
+    const aboutNav = document.querySelector(
+      '.settings-nav .sn-item[data-panel="about"]',
+    );
+    aboutNav?.click();
+    const card = $("cli-health-card");
+    card?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  } catch {
+    /* ignore */
+  }
+  const diag = await runDiagnose();
+  renderCliHealth(diag);
+});
 $("update-banner-open")?.addEventListener("click", () => {
   const url =
     $("update-banner")?.dataset?.url ||
@@ -5276,13 +6447,35 @@ $("update-banner-dismiss")?.addEventListener("click", () => {
     const grok = s.grok || {};
     desktopSettings.accessMode = deriveAccessMode(desktopSettings, grok);
     applyDensity(desktopSettings.density);
+    applyTheme(desktopSettings.theme);
     applyWallpaper();
     applyLocale(desktopSettings.locale === "en" ? "en" : desktopSettings.locale || GrokI18n?.detectLocale?.() || "zh");
     setAccessModeUi(desktopSettings.accessMode);
   } catch {
     if (window.GrokI18n) GrokI18n.applyI18n(document);
+    applyTheme("dark");
   }
   wireWallpaperUi();
+  // Theme / density: apply + save immediately (no need to hit 保存更改)
+  $("set-theme")?.addEventListener("change", () => {
+    void persistTheme($("set-theme").value || "dark");
+  });
+  $("set-density")?.addEventListener("change", () => {
+    const d = $("set-density").value || "comfortable";
+    desktopSettings.density = d;
+    applyDensity(d);
+    void grokDesktop.saveDesktopSettings({ density: d }).catch(() => {});
+  });
+  // Follow system theme when preference is "system"
+  try {
+    window
+      .matchMedia?.("(prefers-color-scheme: dark)")
+      ?.addEventListener?.("change", () => {
+        if (desktopSettings.theme === "system") applyTheme("system");
+      });
+  } catch {
+    /* ignore */
+  }
   await loadWallpaperAssets();
   applyWallpaper();
   updateAccessChip();
@@ -5295,6 +6488,8 @@ $("update-banner-dismiss")?.addEventListener("click", () => {
   showWelcome();
   await refreshSessions();
   setStatus("idle", "就绪");
+  // Sticky follow + content-resize re-scroll (fixes mid-stream stuck scroll)
+  wireThreadScrollFollow();
 
   // Restore open tabs from last run (labels only; connect on focus)
   try {

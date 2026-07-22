@@ -50,11 +50,17 @@ function truncate(text, max = 4000) {
   return text.slice(0, max) + "\n…";
 }
 
+/** Internal sub-agent traces are not restorable as normal user sessions. */
+function isUserVisibleSession(data) {
+  const kind = String(data?.session_kind || "").trim().toLowerCase();
+  return !kind.startsWith("subagent");
+}
+
 /**
  * Walk ~/.grok/sessions for summary.json files.
  * Returns newest-first list.
  */
-function listSessions({ limit = 200 } = {}) {
+function listSessions({ limit = 200, includeInternal = false } = {}) {
   const root = sessionsRoot();
   if (!fs.existsSync(root)) return [];
 
@@ -79,6 +85,7 @@ function listSessions({ limit = 200 } = {}) {
       if (ent.name !== "summary.json") continue;
       const data = safeReadJson(full);
       if (!data?.info?.id) continue;
+      if (!includeInternal && !isUserVisibleSession(data)) continue;
       const title =
         data.generated_title ||
         data.session_summary ||
@@ -272,4 +279,5 @@ module.exports = {
   deleteSessionDir,
   extractTextContent,
   cleanUserText,
+  isUserVisibleSession,
 };
