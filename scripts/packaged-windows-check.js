@@ -2,6 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const expectedVersion = require(path.resolve(__dirname, "..", "package.json")).version;
 
 const appRoot =
   process.env.PACKAGED_APP_ROOT ||
@@ -30,7 +31,7 @@ if (appRoot.endsWith(".asar")) {
 
 const cli = platform.resolveGrokCli();
 assert.ok(platform.commandExists(cli), `packaged CLI lookup failed: ${cli}`);
-assert.strictEqual(pkg.version, "0.8.9", `unexpected packaged version: ${pkg.version}`);
+assert.strictEqual(pkg.version, expectedVersion, `unexpected packaged version: ${pkg.version}`);
 assert.ok(
   rendererSource.includes('className = "turn-action-icon turn-copy"'),
   "message copy action missing from package",
@@ -45,6 +46,8 @@ assert.ok(
 );
 assert.ok(rendererSource.includes("const sendGenerations = new Map()"), "per-session concurrency guard missing");
 assert.ok(mainSource.includes('memory:listEntries'), "memory management IPC missing from package");
+assert.ok(mainSource.includes('file:describePaths'), "drag-and-drop file IPC missing from package");
+assert.ok(rendererSource.includes("addDroppedFiles"), "drag-and-drop attachment handler missing from package");
 
 console.log(`PACKAGED_VERSION=${pkg.version}`);
 console.log(`PACKAGED_CLI=${cli}`);

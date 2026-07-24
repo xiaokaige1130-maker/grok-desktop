@@ -3799,6 +3799,32 @@ async function addImageFiles(files) {
   renderAttachPreview();
 }
 
+async function addDroppedFiles(fileList) {
+  const dropped = [...(fileList || [])];
+  if (!dropped.length) return;
+  const imageFiles = dropped.filter((file) => file.type?.startsWith("image/") && file.size > 0);
+  if (imageFiles.length) await addImageFiles(imageFiles);
+
+  const paths = dropped
+    .map((file) => grokDesktop.getPathForFile?.(file) || file.path || "")
+    .filter(Boolean);
+  if (!paths.length) return;
+  const descriptors = await grokDesktop.describeFilePaths?.([...new Set(paths)]) || [];
+  for (const f of descriptors) {
+    if (f.isImage) {
+      const image = await grokDesktop.readImage?.(f.path);
+      if (image?.dataUrl && !pendingImages.some((x) => x.path === f.path || x.name === f.name)) {
+        pendingImages.push(image);
+      }
+    } else if (!pendingFiles.some((x) => x.path === f.path)) {
+      pendingFiles.push(f);
+    }
+  }
+  renderAttachPreview();
+  renderContextChips();
+  setComposerEnabled(!!activeId && !connecting);
+}
+
 ui.fileBtn?.addEventListener("click", async () => {
   try {
     const files = await grokDesktop.pickFiles();
@@ -3951,15 +3977,23 @@ document.addEventListener("paste", (e) => {
   }
 });
 
-// Drag & drop images into chat / composer
+// Drag & drop images, files, and folders into chat / composer.
 ["thread", "composer-dock"].forEach((id) => {
   const el = $(id);
   if (!el) return;
-  el.addEventListener("dragover", (e) => e.preventDefault());
+  el.addEventListener("dragenter", () => el.classList.add("drop-target-active"));
+  el.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget || !el.contains(e.relatedTarget)) el.classList.remove("drop-target-active");
+  });
+  el.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
   el.addEventListener("drop", (e) => {
     e.preventDefault();
+    el.classList.remove("drop-target-active");
     if (!activeId) return;
-    void addImageFiles([...(e.dataTransfer?.files || [])]);
+    void addDroppedFiles(e.dataTransfer?.files || []);
   });
 });
 

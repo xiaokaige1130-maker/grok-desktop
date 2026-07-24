@@ -1,6 +1,6 @@
 {
   "name": "grok-desktop",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "description": "Cross-platform Grok Build desktop shell for Windows, Linux and macOS",
   "main": "main.js",
   "author": {
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "electron": "^35.7.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^24.13.3"
   },
   "build": {
     "appId": "com.xiaokaige.grok-desktop",
@@ -77,7 +77,6 @@
       "category": "Development",
       "icon": "assets/icon.png",
       "executableName": "grok-desktop",
-      "syncDesktopName": true,
       "synopsis": "Grok Build desktop for Linux",
       "description": "Standalone Grok Build desktop shell: multi-session, plan panel, zh/en UI, official grok CLI (ACP).",
       "desktop": {

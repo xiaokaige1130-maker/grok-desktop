@@ -1431,6 +1431,35 @@ ipcMain.handle("dialog:pickFiles", async () => {
   return out;
 });
 
+ipcMain.handle("file:describePaths", async (_e, paths) => {
+  const out = [];
+  for (const raw of Array.isArray(paths) ? paths : []) {
+    const p = typeof raw === "string" ? raw : "";
+    if (!p) continue;
+    try {
+      const st = fs.statSync(p);
+      const isDirectory = st.isDirectory();
+      let preview = "";
+      if (!isDirectory && st.size < 200_000) {
+        const buf = fs.readFileSync(p);
+        const sample = buf.slice(0, 4000).toString("utf8");
+        if (!sample.includes("\u0000")) preview = sample;
+      }
+      out.push({
+        path: p,
+        name: path.basename(p),
+        size: isDirectory ? 0 : st.size,
+        preview,
+        isDirectory,
+        isImage: !isDirectory && /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(p),
+      });
+    } catch {
+      // The path may disappear while dragging; ignore it rather than failing the drop.
+    }
+  }
+  return out;
+});
+
 ipcMain.handle("permission:respond", async (_e, { id, optionId, sessionId } = {}) => {
   // Prefer hinted session, then active, then any agent that has this request pending
   let client = getAgent(sessionId || activeSessionId);

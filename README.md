@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.8.9-22C55E?style=flat-square" alt="Version 0.8.9" />
+  <img src="https://img.shields.io/badge/version-0.8.10-22C55E?style=flat-square" alt="Version 0.8.10" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-334155?style=flat-square" alt="Windows, macOS and Linux" />
   <img src="https://img.shields.io/badge/UI-中文%20%7C%20English-E11D48?style=flat-square" alt="Chinese and English UI" />
   <img src="https://img.shields.io/badge/backend-official%20Grok%20CLI-111827?style=flat-square" alt="Official Grok CLI backend" />
@@ -41,6 +41,29 @@
 </p>
 
 ![Grok Desktop banner](docs/screenshots/hero.jpg)
+
+## 0.8.10 更新 / What's New
+
+### 中文
+
+`0.8.10` 让聊天输入、长任务和发布体验更完整：图片、文件和文件夹现在都可以直接拖进聊天区，点击 `+` 选择附件的方式仍然保留；窗口最大化时，普通消息、工具总结和图片画廊会自动扩展宽度，恢复正常窗口后回到紧凑布局。消息操作图标、记忆收藏、分支任务和独立会话发送状态也已统一，并修复了 Windows 安装包和桌面快捷方式图标。
+
+### English
+
+`0.8.10` completes the everyday chat workflow: images, files, and folders can be dropped directly into the composer, while the `+` attachment picker remains available. Maximized windows now expand regular messages, tool summaries, and image galleries together, then return to the compact layout when resized. Message actions, memory saves, branch tasks, per-session send state, and the Windows installer/shortcut icon are also aligned and polished.
+
+### 界面预览 / UI Preview
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/ui-overview-0.8.10.png" alt="Grok Desktop main workspace" /></td>
+    <td width="50%"><img src="docs/screenshots/message-actions-0.8.10.png" alt="Message actions and task queue" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/environment-0.8.10.png" alt="Environment and version status" /></td>
+    <td width="50%"><img src="docs/screenshots/plugins-0.8.10.png" alt="Plugin marketplace" /></td>
+  </tr>
+</table>
 
 > [!IMPORTANT]
 > Grok Desktop 是社区项目，不是 xAI 官方产品。它不内置账号或模型服务，而是连接你电脑上已经安装并登录的官方 `grok` CLI。<br />

@@ -1733,6 +1733,7 @@ body.theme-light .model-popover {
 
 /* Keep compact windows unchanged; let maximized/fullscreen chats use the available canvas. */
 @media (min-width: 1280px) {
+  :root { --content: 960px; }
   .turn.user .body,
   .turn.user .turn-media { max-width: min(88%, 900px); }
   .turn.assistant .body,
@@ -1741,6 +1742,7 @@ body.theme-light .model-popover {
 }
 
 @media (min-width: 1680px) {
+  :root { --content: 1180px; }
   .turn.user .body,
   .turn.user .turn-media { max-width: min(88%, 1100px); }
   .turn.assistant .body,
@@ -2538,6 +2540,12 @@ body.theme-light .search-hits {
 .turn-media { padding: 6px 0 2px; }
 .turn.user .turn-media { padding: 0 0 8px; }
 .turn.media-only { max-width: min(720px, 100%); }
+@media (min-width: 1280px) {
+  .turn.media-only { max-width: min(92%, 960px); }
+}
+@media (min-width: 1680px) {
+  .turn.media-only { max-width: min(92%, 1180px); }
+}
 .history-media-early {
   margin: 8px 0 14px;
   padding: 10px 12px;
@@ -2770,6 +2778,10 @@ body.theme-light .slash-menu {
   position: relative;
   z-index: 20;
   overflow: visible;
+}
+#composer-dock.drop-target-active .composer {
+  border-color: var(--accent, #e96aa7);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #e96aa7) 28%, transparent), var(--shadow);
 }
 .composer,
 .composer-bar,

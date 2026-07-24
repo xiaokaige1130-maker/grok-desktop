@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 const slashCatalog = require("./src/commands-zh");
 
 function on(channel, cb) {
@@ -53,6 +53,14 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   pickDirectory: () => ipcRenderer.invoke("dialog:pickDirectory"),
   pickImages: () => ipcRenderer.invoke("dialog:pickImages"),
   pickFiles: () => ipcRenderer.invoke("dialog:pickFiles"),
+  describeFilePaths: (paths) => ipcRenderer.invoke("file:describePaths", paths),
+  getPathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return file?.path || "";
+    }
+  },
   readImage: (p) => ipcRenderer.invoke("file:readImage", p),
   respondPermission: (id, optionId, sessionId) =>
     ipcRenderer.invoke("permission:respond", { id, optionId, sessionId }),
