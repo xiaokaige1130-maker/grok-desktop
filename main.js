@@ -1582,6 +1582,14 @@ ipcMain.handle("skills:open", async (_e, skillPath) => {
 // ── Memory ─────────────────────────────────────────────
 
 ipcMain.handle("memory:list", async () => memory.listMemoryFiles());
+// UI always lists all entries (so you can manage experience even when the switch is off).
+// Agent retrieval uses memory:agentContext, which respects experienceMemory.
+ipcMain.handle("memory:listEntries", async (_e, opts) =>
+  memory.listEntries({ ...(opts || {}), includeExperience: true }),
+);
+ipcMain.handle("memory:getEntry", async (_e, id) => memory.getEntry(id));
+ipcMain.handle("memory:upsertEntry", async (_e, payload) => memory.upsertEntry(payload || {}));
+ipcMain.handle("memory:deleteEntry", async (_e, id) => memory.deleteEntry(id));
 ipcMain.handle("memory:read", async (_e, filePath) => memory.readMemoryFile(filePath));
 ipcMain.handle("memory:write", async (_e, { path: filePath, content }) =>
   memory.writeMemoryFile(filePath, content),
@@ -1589,6 +1597,14 @@ ipcMain.handle("memory:write", async (_e, { path: filePath, content }) =>
 ipcMain.handle("memory:append", async (_e, payload) => memory.appendNote(payload || {}));
 ipcMain.handle("memory:setEnabled", async (_e, enabled) => memory.setEnabled(!!enabled));
 ipcMain.handle("memory:clear", async () => memory.clearMemory());
+ipcMain.handle("memory:agentContext", async (_e, opts) => {
+  const desk = settings.readDesktopSettings();
+  return memory.listEntriesForAgent({
+    experienceEnabled: desk.experienceMemory !== false,
+    type: opts?.type,
+    category: opts?.category,
+  });
+});
 
 ipcMain.handle("commands:list", async (_e, { sessionId } = {}) => {
   const client = getAgent(sessionId || activeSessionId);

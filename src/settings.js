@@ -51,6 +51,11 @@ const DEFAULT_DESKTOP = {
   archivedSessionIds: [],
   /** 置顶会话 id */
   pinnedSessionIds: [],
+  /**
+   * 经验记忆开关：关闭后 UI 仍可管理，但列表/Agent 默认不暴露经验条
+   * （全局常用记忆条不受影响）
+   */
+  experienceMemory: true,
   /** 窗口几何：{ x, y, width, height } */
   windowBounds: null,
   /** 上次是否最大化 */

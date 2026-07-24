@@ -227,6 +227,7 @@ let desktopSettings = {
   wallpaperPath: null,
   wallpaperDim: 45,
   notifyOnDone: true,
+  experienceMemory: true,
   closeToTray: true,
   minimizeToTray: false,
   openAtLogin: false,
@@ -465,7 +466,17 @@ let workingSessions = new Set();
 /** @type {Set<string>} */
 const promptInFlight = new Set();
 /** 发送代数：打断后旧的 sendNow finally 不再 flush/改状态 */
-let sendGeneration = 0;
+const sendGenerations = new Map();
+
+function currentSendGeneration(sessionId) {
+  return sendGenerations.get(sessionId) || 0;
+}
+
+function nextSendGeneration(sessionId) {
+  const next = currentSendGeneration(sessionId) + 1;
+  sendGenerations.set(sessionId, next);
+  return next;
+}
 /** Detached thread panes per session so parallel streams stay intact. */
 /** @type {Map<string, HTMLElement>} */
 const threadPanes = new Map();
@@ -3165,6 +3176,47 @@ function shouldClamp(text) {
   return (text || "").length > CLAMP || (text || "").split("\n").length > 8;
 }
 
+function recentContextForTurn(turn, { maxTurns = 10, maxChars = 12000 } = {}) {
+  const allTurns = Array.from(
+    turn?.parentElement?.querySelectorAll?.(".turn.user, .turn.assistant") || [],
+  );
+  const selectedIndex = allTurns.indexOf(turn);
+  if (selectedIndex < 0) return "";
+
+  const picked = [];
+  let used = 0;
+  for (let i = selectedIndex; i >= 0 && picked.length < maxTurns && used < maxChars; i -= 1) {
+    const item = allTurns[i];
+    const text = String(item.querySelector(":scope > .body")?.textContent || "").trim();
+    if (!text) continue;
+    const remaining = maxChars - used;
+    const clipped = text.length > remaining ? text.slice(text.length - remaining) : text;
+    picked.push({ role: item.classList.contains("user") ? "user" : "assistant", text: clipped });
+    used += clipped.length;
+  }
+  return picked
+    .reverse()
+    .map((item) => `${item.role === "user" ? "用户" : "助手"}：${item.text}`)
+    .join("\n\n");
+}
+
+async function branchFromTurn(turn) {
+  const context = recentContextForTurn(turn);
+  if (!context) {
+    flashToast(t("chat.branchNoContext"));
+    return null;
+  }
+  const sourceTitle = activeMeta?.title || t("chat.branchSourceFallback");
+  const cwd = activeMeta?.cwd || sessions.find((s) => s.id === activeId)?.cwd || null;
+  const en = uiLocale() === "en";
+  const prompt = en
+    ? `You are continuing work in a new task branched from an existing conversation. Use the recent context below as background, continue the unfinished goal, and do not repeat the context. If no next step is clear, briefly confirm the handoff and wait for instructions.\n\n<recent_context>\n${context}\n</recent_context>`
+    : `你正在一个从已有会话分支出来的新任务中。请把下面的最近上下文作为背景，承接尚未完成的目标继续执行，不要复述上下文。如果没有明确的下一步，请简短确认已承接并等待指令。\n\n<recent_context>\n${context}\n</recent_context>`;
+  const displayText = en ? `Continue from “${sourceTitle}”` : `承接「${sourceTitle}」的最近上下文`;
+  const desiredTitle = `${en ? "Branch" : "分支"} · ${sourceTitle}`.slice(0, 64);
+  return newSession({ cwd, initialPrompt: prompt, initialDisplayText: displayText, desiredTitle });
+}
+
 /** Match http(s) URLs in plain text (trailing punctuation stripped into separate text). */
 const MSG_URL_RE = /https?:\/\/[^\s<>"'`]+/gi;
 
@@ -3223,6 +3275,20 @@ function setMessageBody(el, text) {
   el.dataset.linkified = "1";
 }
 
+function actionIcon(name) {
+  const icon = document.createElement("span");
+  icon.className = `action-glyph action-glyph-${name}`;
+  icon.setAttribute("aria-hidden", "true");
+  const shapes = {
+    copy: '<rect x="5.5" y="2.5" width="8" height="8" rx="2"/><rect x="2.5" y="5.5" width="8" height="8" rx="2"/>',
+    share: '<circle cx="4" cy="8" r="1.6"/><circle cx="11.8" cy="3.8" r="1.6"/><circle cx="11.8" cy="12.2" r="1.6"/><path d="m5.4 7.2 4.9-2.7M5.4 8.8l4.9 2.7"/>',
+    memory: '<path d="M8 3.2a2.4 2.4 0 0 0-4.2 1.6 2.4 2.4 0 0 0 .1 4.7 2.4 2.4 0 0 0 4.1 1.5 2.4 2.4 0 0 0 4.1-1.5 2.4 2.4 0 0 0 .1-4.7A2.4 2.4 0 0 0 8 3.2Z"/><path d="M8 3.2v9.1M5.1 6.1h1.5M9.4 6.1h1.5M5.2 9.1h1.4M9.4 9.1h1.4"/>'
+  };
+  const svg = `<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">${shapes[name] || ""}</g></svg>`;
+  icon.innerHTML = svg;
+  return icon;
+}
+
 /** After streaming, turn accumulated plain text into clickable links. */
 function linkifyElement(el) {
   if (!el) return;
@@ -3261,6 +3327,9 @@ function appendTurn(role, text, { stream = false, clampable = true, images = [],
     }
   }
 
+  const actions = document.createElement("div");
+  actions.className = "turn-actions";
+
   if (!stream && clampable && shouldClamp(text)) {
     body.classList.add("clamped");
     const btn = document.createElement("button");
@@ -3271,11 +3340,84 @@ function appendTurn(role, text, { stream = false, clampable = true, images = [],
       body.classList.toggle("clamped");
       btn.textContent = body.classList.contains("clamped") ? "展开全文" : "收起";
     };
-    turn.appendChild(body);
-    turn.appendChild(btn);
-  } else {
-    turn.appendChild(body);
+    actions.appendChild(btn);
   }
+
+  if (String(text || "").trim()) {
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "turn-action-icon turn-copy";
+    copyBtn.appendChild(actionIcon("copy"));
+    copyBtn.title = t("chat.copyMessageHint");
+    copyBtn.setAttribute("aria-label", t("chat.copyMessageHint"));
+    copyBtn.onclick = async () => {
+      const fullText = body.textContent || "";
+      if (!fullText.trim()) return;
+      copyBtn.disabled = true;
+      try {
+        await copyText(fullText);
+        flashToast(t("chat.messageCopied"));
+      } catch (err) {
+        flashToast(err?.message || String(err));
+      } finally {
+        setTimeout(() => {
+          copyBtn.disabled = false;
+        }, 1200);
+      }
+    };
+    actions.appendChild(copyBtn);
+
+    const branchBtn = document.createElement("button");
+    branchBtn.type = "button";
+    branchBtn.className = "turn-action-icon turn-branch";
+    branchBtn.appendChild(actionIcon("share"));
+    branchBtn.title = t("chat.branchTaskHint");
+    branchBtn.setAttribute("aria-label", t("chat.branchTaskHint"));
+    branchBtn.onclick = async () => {
+      branchBtn.disabled = true;
+      try {
+        const sid = await branchFromTurn(turn);
+        if (sid) flashToast(t("chat.branchCreated"));
+      } catch (err) {
+        flashToast(err?.message || String(err));
+      } finally {
+        branchBtn.disabled = false;
+      }
+    };
+    actions.appendChild(branchBtn);
+
+    const memoryBtn = document.createElement("button");
+    memoryBtn.type = "button";
+    memoryBtn.className = "turn-action-icon turn-memory";
+    memoryBtn.appendChild(actionIcon("memory"));
+    memoryBtn.title = t("chat.saveMemoryHint");
+    memoryBtn.setAttribute("aria-label", t("chat.saveMemoryHint"));
+    memoryBtn.onclick = async () => {
+      const fullText = body.textContent || "";
+      if (!fullText.trim()) return;
+      memoryBtn.disabled = true;
+      try {
+        const roleLabel = role === "user" ? t("chat.memoryUserPrefix") : t("chat.memoryAssistantPrefix");
+        await grokDesktop.setMemoryEnabled?.(true);
+        await grokDesktop.upsertMemoryEntry({
+          type: "note",
+          title: `${roleLabel}${fullText.replace(/\s+/g, " ").slice(0, 42)}`,
+          body: fullText,
+        });
+        flashToast(t("chat.memorySaved"));
+      } catch (err) {
+        flashToast(err?.message || String(err));
+      } finally {
+        setTimeout(() => {
+          memoryBtn.disabled = false;
+        }, 800);
+      }
+    };
+    actions.appendChild(memoryBtn);
+  }
+
+  turn.appendChild(body);
+  if (actions.childElementCount) turn.appendChild(actions);
 
   if (role !== "user" && images?.length) {
     const media = ensureTurnMedia(turn);
@@ -4084,11 +4226,11 @@ async function selectSession(sessionId) {
   }
 }
 
-async function newSession() {
+async function newSession(options = {}) {
   if (connecting) return;
   switchView("chat");
-  const cwd = await grokDesktop.pickDirectory();
-  if (!cwd) return;
+  const cwd = options.cwd || (await grokDesktop.pickDirectory());
+  if (!cwd) return null;
   const seq = ++openSeq;
   connecting = true;
   setStatus("connecting", "创建中…");
@@ -4118,7 +4260,15 @@ async function newSession() {
     stNew.historyAssets = [];
     stNew.seenMedia = seenMedia;
     stNew.messageQueue = [];
-    const meta = { ...res.session, title: res.session.title || "新对话", cwd: res.session.cwd || cwd };
+    let meta = { ...res.session, title: res.session.title || "新对话", cwd: res.session.cwd || cwd };
+    if (options.desiredTitle) {
+      try {
+        await grokDesktop.renameSession(sid, options.desiredTitle);
+        meta = { ...meta, title: options.desiredTitle };
+      } catch {
+        /* keep the server-provided title */
+      }
+    }
     applyHeader(meta);
     // Optimistic insert so it shows even before disk scan
     sessions = [
@@ -4163,11 +4313,22 @@ async function newSession() {
         /* ignore */
       }
     }, 800);
+    if (options.initialPrompt) {
+      await sendNow({
+        text: options.initialPrompt,
+        images: [],
+        files: [],
+        sessionId: sid,
+        displayText: options.initialDisplayText || options.initialPrompt,
+      });
+    }
     ui.input.focus();
+    return sid;
   } catch (err) {
     connecting = false;
     setStatus("error", err?.message || "创建失败");
     appendBanner(`创建失败：${err?.message || err}`, "error");
+    return null;
   }
 }
 
@@ -4180,8 +4341,7 @@ async function interruptAndSend({ text, images, files, displayText = null }) {
   if (!sid) return;
 
   // 作废旧 sendNow 的 finally（避免旧轮 flush/抢状态）
-  sendGeneration += 1;
-  const myGen = sendGeneration;
+  const myGen = nextSendGeneration(sid);
 
   // 引导发送：清掉排队（调用方也可已清）
   messageQueue = [];
@@ -4201,7 +4361,7 @@ async function interruptAndSend({ text, images, files, displayText = null }) {
   markRunEnd(sid);
 
   await new Promise((r) => setTimeout(r, 200));
-  if (myGen !== sendGeneration) return;
+  if (myGen !== currentSendGeneration(sid)) return;
 
   setBusy(false);
   await sendNow({
@@ -4275,7 +4435,7 @@ async function sendNow({
   if (!sentTo) return;
   const isActive = sentTo === activeId;
   const st = ensureSessionUi(sentTo);
-  const myGen = generation != null ? generation : ++sendGeneration;
+  const myGen = generation != null ? generation : nextSendGeneration(sentTo);
 
   if (isActive && generation == null) {
     // 非打断路径：在这里清输入；打断路径已在 send() 清过
@@ -4400,7 +4560,7 @@ async function sendNow({
       images: (images || []).map((i) => ({ mimeType: i.mimeType, dataBase64: i.dataBase64 })),
       sessionId: sentTo,
     });
-    if (myGen !== sendGeneration) return;
+    if (myGen !== currentSendGeneration(sentTo)) return;
     if (activeId === sentTo) setStatus("ready", "就绪");
     scheduleRenderTabs(true);
     void refreshSessions()
@@ -4410,7 +4570,7 @@ async function sendNow({
       })
       .catch(() => {});
   } catch (err) {
-    if (myGen !== sendGeneration) return; // 已被新一轮打断，忽略
+    if (myGen !== currentSendGeneration(sentTo)) return; // 已被新一轮打断，忽略
     const msg = String(err?.message || err || "");
     scheduleRenderTabs(true);
     // cancel 导致的中止不算失败
@@ -4423,7 +4583,7 @@ async function sendNow({
       appendBanner(`发送失败：${msg}`, "error");
     }
   } finally {
-    if (myGen !== sendGeneration) {
+    if (myGen !== currentSendGeneration(sentTo)) {
       // 被更新的发送取代，不要清新一轮的 in-flight，也不要 flush
       return;
     }
@@ -4751,75 +4911,301 @@ $("set-locale")?.addEventListener("change", () => {
 
 // ── Memory ─────────────────────────────────────────────
 
+/** @type {'all'|'note'|'experience'} */
+let memFilter = "all";
+/** @type {string|null} */
+let memSelectedId = null;
+/** @type {Array<object>} */
+let memEntriesCache = [];
+
+const MEM_CAT_LABELS = {
+  frontend: { zh: "前端", en: "Frontend" },
+  backend: { zh: "后端", en: "Backend" },
+  api: { zh: "接口", en: "API" },
+  desktop: { zh: "桌面", en: "Desktop" },
+  build: { zh: "打包/构建", en: "Build" },
+  ops: { zh: "运维", en: "Ops" },
+  other: { zh: "其他", en: "Other" },
+};
+
+function memCatLabel(cat) {
+  const loc = desktopSettings.locale === "en" ? "en" : "zh";
+  return MEM_CAT_LABELS[cat]?.[loc] || cat || MEM_CAT_LABELS.other[loc];
+}
+
+function experienceMemoryOn() {
+  return desktopSettings.experienceMemory !== false;
+}
+
+function showMemEmptyDetail() {
+  if (!ui.memoryDetail) return;
+  ui.memoryDetail.innerHTML = `
+    <div class="welcome-mini">
+      <h2>${t("page.memory.emptyTitle")}</h2>
+      <p>${t("page.memory.emptyBody")}</p>
+      <ul>
+        <li>${t("page.memory.tipGlobal")}</li>
+        <li>${t("page.memory.tipProject")}</li>
+      </ul>
+    </div>`;
+}
+
 async function loadMemory() {
-  ui.memoryList.innerHTML = '<div class="list-empty">加载中…</div>';
+  if (!ui.memoryList) return;
+  ui.memoryList.innerHTML = `<div class="list-empty">${t("page.memory.loading")}</div>`;
   try {
-    const data = await grokDesktop.listMemory();
-    ui.memoryEnabled.checked = !!data.enabled;
-    ui.memoryList.replaceChildren();
-    if (!data.files?.length) {
-      ui.memoryList.innerHTML = `<div class="list-empty">${
-        data.enabled
-          ? "暂无记忆文件。在对话中让 Grok「记住」一些约定后会出现在这里。"
-          : "记忆未启用。打开右上角开关，或在设置中启用。"
-      }</div>`;
-      return;
+    // sync toggles
+    try {
+      const data = await grokDesktop.listMemory();
+      if (ui.memoryEnabled) ui.memoryEnabled.checked = !!data.enabled;
+    } catch {
+      /* ignore */
     }
-    for (const f of data.files) {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "card";
-      card.innerHTML = `<h3></h3><p></p><div class="meta"><span class="badge"></span><span></span></div>`;
-      card.querySelector("h3").textContent = f.title;
-      card.querySelector("p").textContent = f.description || f.path;
-      card.querySelector(".badge").textContent = f.scope === "global" ? "全局" : "项目";
-      card.querySelector(".meta span:last-child").textContent = relativeTime(f.updatedAt);
-      card.onclick = () => {
-        ui.memoryList.querySelectorAll(".card").forEach((c) => c.classList.remove("active"));
-        card.classList.add("active");
-        void showMemoryFile(f);
-      };
-      ui.memoryList.appendChild(card);
-    }
+    const expEl = $("memory-experience-enabled");
+    if (expEl) expEl.checked = experienceMemoryOn();
+    const setExp = $("set-experience-memory");
+    if (setExp) setExp.checked = experienceMemoryOn();
+
+    const res = await grokDesktop.listMemoryEntries?.({});
+    memEntriesCache = Array.isArray(res?.entries) ? res.entries : [];
+    renderMemoryList();
   } catch (err) {
-    ui.memoryList.innerHTML = `<div class="list-error">${err.message}</div>`;
+    ui.memoryList.innerHTML = `<div class="list-error">${err.message || err}</div>`;
   }
 }
 
-async function showMemoryFile(f) {
-  ui.memoryDetail.innerHTML = '<div class="list-empty">加载中…</div>';
-  try {
-    const data = await grokDesktop.readMemory(f.path);
-    ui.memoryDetail.innerHTML = `
-      <h2></h2>
-      <p class="page-desc"></p>
-      <div class="actions">
-        <button type="button" class="btn primary" id="mem-save">保存</button>
-        <button type="button" class="btn" id="mem-open">在文件管理器中显示</button>
-      </div>
-      <textarea class="editor" id="mem-editor"></textarea>`;
-    ui.memoryDetail.querySelector("h2").textContent = f.title;
-    ui.memoryDetail.querySelector(".page-desc").textContent = f.path;
-    const editor = ui.memoryDetail.querySelector("#mem-editor");
-    editor.value = data.content || "";
-    ui.memoryDetail.querySelector("#mem-save").onclick = async () => {
-      try {
-        await grokDesktop.writeMemory(f.path, editor.value);
-        alert("已保存");
-      } catch (err) {
-        alert(err.message || err);
-      }
+function filteredMemoryEntries() {
+  let list = memEntriesCache.slice();
+  if (memFilter === "note") list = list.filter((e) => e.type === "note");
+  if (memFilter === "experience") list = list.filter((e) => e.type === "experience");
+  // When experience switch is off: hide from "all" to reduce noise; "经验" tab still shows for management
+  if (!experienceMemoryOn() && memFilter === "all") {
+    list = list.filter((e) => e.type !== "experience");
+  }
+  const cat = $("mem-category-filter")?.value || "";
+  if (cat) list = list.filter((e) => e.type !== "experience" || e.category === cat);
+  return list;
+}
+
+function renderMemoryList() {
+  if (!ui.memoryList) return;
+  const list = filteredMemoryEntries();
+  ui.memoryList.replaceChildren();
+  if (!list.length) {
+    const enabled = !!ui.memoryEnabled?.checked;
+    ui.memoryList.innerHTML = `<div class="list-empty">${
+      !enabled
+        ? t("page.memory.emptyDisabled")
+        : memFilter === "experience" && !experienceMemoryOn()
+          ? t("page.memory.emptyExpOff")
+          : t("page.memory.emptyList")
+    }</div>`;
+    if (!memSelectedId || !memEntriesCache.some((e) => e.id === memSelectedId)) {
+      showMemEmptyDetail();
+    }
+    return;
+  }
+  for (const e of list) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "card mem-card" + (e.id === memSelectedId ? " active" : "");
+    card.dataset.id = e.id;
+    const preview = String(e.body || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 96);
+    card.innerHTML = `<h3></h3><p></p><div class="meta"><span class="badge"></span><span class="mem-cat"></span><span class="mem-time"></span></div>`;
+    card.querySelector("h3").textContent = e.title || preview.slice(0, 32) || "—";
+    card.querySelector("p").textContent = preview || "—";
+    const badge = card.querySelector(".badge");
+    badge.textContent = e.type === "experience" ? t("page.memory.badgeExp") : t("page.memory.badgeNote");
+    badge.classList.add(e.type === "experience" ? "badge-exp" : "badge-note");
+    const catEl = card.querySelector(".mem-cat");
+    if (e.type === "experience" && e.category) {
+      catEl.textContent = memCatLabel(e.category);
+    } else {
+      catEl.remove();
+    }
+    card.querySelector(".mem-time").textContent = relativeTime(e.updatedAt);
+    card.onclick = () => {
+      memSelectedId = e.id;
+      ui.memoryList.querySelectorAll(".card").forEach((c) => c.classList.remove("active"));
+      card.classList.add("active");
+      showMemoryEntry(e);
     };
-    ui.memoryDetail.querySelector("#mem-open").onclick = () => grokDesktop.showItem(f.path);
+    ui.memoryList.appendChild(card);
+  }
+  if (memSelectedId) {
+    const still = list.find((x) => x.id === memSelectedId) || memEntriesCache.find((x) => x.id === memSelectedId);
+    if (still) showMemoryEntry(still);
+    else {
+      memSelectedId = null;
+      showMemEmptyDetail();
+    }
+  }
+}
+
+function showMemoryEntry(entry) {
+  if (!ui.memoryDetail || !entry) return;
+  const isExp = entry.type === "experience";
+  ui.memoryDetail.innerHTML = `
+    <div class="mem-detail-head">
+      <div class="mem-detail-badges">
+        <span class="badge ${isExp ? "badge-exp" : "badge-note"}"></span>
+        ${isExp ? '<span class="mem-cat-pill" id="mem-cat-pill"></span>' : ""}
+      </div>
+      <p class="page-desc mem-detail-hint"></p>
+    </div>
+    <label class="mem-field">
+      <span data-i18n-skip>${t("page.memory.fieldTitle")}</span>
+      <input type="text" id="mem-title" class="mem-input" />
+    </label>
+    ${
+      isExp
+        ? `<label class="mem-field">
+      <span>${t("page.memory.fieldCategory")}</span>
+      <select id="mem-category" class="mem-select mem-input">
+        <option value="frontend">${memCatLabel("frontend")}</option>
+        <option value="backend">${memCatLabel("backend")}</option>
+        <option value="api">${memCatLabel("api")}</option>
+        <option value="desktop">${memCatLabel("desktop")}</option>
+        <option value="build">${memCatLabel("build")}</option>
+        <option value="ops">${memCatLabel("ops")}</option>
+        <option value="other">${memCatLabel("other")}</option>
+      </select>
+    </label>`
+        : ""
+    }
+    <label class="mem-field mem-field-body">
+      <span>${t("page.memory.fieldBody")}</span>
+      <textarea class="editor mem-editor" id="mem-editor"></textarea>
+    </label>
+    <div class="actions mem-detail-actions">
+      <button type="button" class="btn primary" id="mem-save">${t("page.memory.save")}</button>
+      <button type="button" class="btn danger" id="mem-delete">${t("page.memory.delete")}</button>
+    </div>
+    <p class="mem-meta-line" id="mem-meta-line"></p>`;
+
+  ui.memoryDetail.querySelector(".badge").textContent = isExp
+    ? t("page.memory.badgeExp")
+    : t("page.memory.badgeNote");
+  ui.memoryDetail.querySelector(".mem-detail-hint").textContent = isExp
+    ? t("page.memory.hintExp")
+    : t("page.memory.hintNote");
+  const titleEl = ui.memoryDetail.querySelector("#mem-title");
+  const editor = ui.memoryDetail.querySelector("#mem-editor");
+  titleEl.value = entry.title || "";
+  editor.value = entry.body || "";
+  if (isExp) {
+    const cat = ui.memoryDetail.querySelector("#mem-category");
+    if (cat) cat.value = entry.category || "other";
+    const pill = ui.memoryDetail.querySelector("#mem-cat-pill");
+    if (pill) pill.textContent = memCatLabel(entry.category || "other");
+  }
+  const meta = ui.memoryDetail.querySelector("#mem-meta-line");
+  if (meta) {
+    meta.textContent = `${t("page.memory.updated")}: ${relativeTime(entry.updatedAt)}`;
+  }
+
+  ui.memoryDetail.querySelector("#mem-save").onclick = async () => {
+    try {
+      const payload = {
+        id: entry.id,
+        type: entry.type,
+        title: titleEl.value.trim(),
+        body: editor.value,
+        category: isExp ? ui.memoryDetail.querySelector("#mem-category")?.value : null,
+      };
+      const r = await grokDesktop.upsertMemoryEntry(payload);
+      memSelectedId = r.entry?.id || entry.id;
+      flashToast(t("page.memory.saved"));
+      await loadMemory();
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+  ui.memoryDetail.querySelector("#mem-delete").onclick = async () => {
+    if (!confirm(t("page.memory.deleteConfirm"))) return;
+    try {
+      await grokDesktop.deleteMemoryEntry(entry.id);
+      memSelectedId = null;
+      flashToast(t("page.memory.deleted"));
+      await loadMemory();
+      showMemEmptyDetail();
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+}
+
+async function ensureMemoryEnabled() {
+  if (!ui.memoryEnabled?.checked) {
+    await grokDesktop.setMemoryEnabled(true);
+    if (ui.memoryEnabled) ui.memoryEnabled.checked = true;
+    const s = $("set-memory");
+    if (s) s.checked = true;
+  }
+}
+
+async function addMemoryEntry(type) {
+  const isExp = type === "experience";
+  if (isExp && !experienceMemoryOn()) {
+    const on = confirm(t("page.memory.expOffPrompt"));
+    if (!on) return;
+    desktopSettings.experienceMemory = true;
+    try {
+      await grokDesktop.saveDesktopSettings({ experienceMemory: true });
+    } catch {
+      /* ignore */
+    }
+    const expEl = $("memory-experience-enabled");
+    if (expEl) expEl.checked = true;
+    const setExp = $("set-experience-memory");
+    if (setExp) setExp.checked = true;
+  }
+  const body = await askText({
+    title: isExp ? t("page.memory.addExpTitle") : t("page.memory.addNoteTitle"),
+    message: isExp ? t("page.memory.addExpMsg") : t("page.memory.addNoteMsg"),
+    placeholder: isExp ? t("page.memory.addExpPh") : t("page.memory.addNotePh"),
+    okLabel: t("page.memory.write"),
+  });
+  if (!body?.trim()) return;
+  let category = "other";
+  let title = body.trim().slice(0, 48);
+  if (isExp) {
+    const catPick = await askText({
+      title: t("page.memory.fieldCategory"),
+      message: t("page.memory.catPickMsg"),
+      placeholder: "frontend / backend / api / desktop / build / ops / other",
+      okLabel: t("page.memory.write"),
+      defaultValue: "desktop",
+    });
+    if (catPick?.trim()) category = catPick.trim().toLowerCase();
+  }
+  try {
+    await ensureMemoryEnabled();
+    const r = await grokDesktop.upsertMemoryEntry({
+      type: isExp ? "experience" : "note",
+      title,
+      body: body.trim(),
+      category: isExp ? category : null,
+    });
+    memSelectedId = r.entry?.id || null;
+    if (isExp) memFilter = "experience";
+    else memFilter = "note";
+    document.querySelectorAll(".mem-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-mem-filter") === memFilter);
+    });
+    await loadMemory();
+    flashToast(t("page.memory.saved"));
   } catch (err) {
-    ui.memoryDetail.innerHTML = `<div class="list-error">${err.message}</div>`;
+    alert(err.message || err);
   }
 }
 
 ui.memoryEnabled?.addEventListener("change", async () => {
   try {
     await grokDesktop.setMemoryEnabled(ui.memoryEnabled.checked);
-    // also sync settings checkbox if present
     const s = $("set-memory");
     if (s) s.checked = ui.memoryEnabled.checked;
     await loadMemory();
@@ -4828,37 +5214,47 @@ ui.memoryEnabled?.addEventListener("change", async () => {
     ui.memoryEnabled.checked = !ui.memoryEnabled.checked;
   }
 });
-$("btn-memory-refresh")?.addEventListener("click", () => loadMemory());
-$("btn-memory-add")?.addEventListener("click", async () => {
-  const text = await askText({
-    title: "添加记忆",
-    message: "写入全局 MEMORY.md，例如：这个仓库用 pnpm；回复请用中文",
-    placeholder: "一条长期约定…",
-    okLabel: "写入",
+
+$("memory-experience-enabled")?.addEventListener("change", async () => {
+  const on = !!$("memory-experience-enabled").checked;
+  desktopSettings.experienceMemory = on;
+  try {
+    await grokDesktop.saveDesktopSettings({ experienceMemory: on });
+    const s = $("set-experience-memory");
+    if (s) s.checked = on;
+    await loadMemory();
+  } catch (err) {
+    alert(err.message || err);
+    $("memory-experience-enabled").checked = !on;
+  }
+});
+
+$("set-experience-memory")?.addEventListener("change", async () => {
+  const on = !!$("set-experience-memory").checked;
+  desktopSettings.experienceMemory = on;
+  try {
+    await grokDesktop.saveDesktopSettings({ experienceMemory: on });
+    const s = $("memory-experience-enabled");
+    if (s) s.checked = on;
+    if (view === "memory") await loadMemory();
+  } catch (err) {
+    alert(err.message || err);
+    $("set-experience-memory").checked = !on;
+  }
+});
+
+document.querySelectorAll(".mem-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    memFilter = btn.getAttribute("data-mem-filter") || "all";
+    document.querySelectorAll(".mem-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderMemoryList();
   });
-  if (!text?.trim()) return;
-  try {
-    // auto-enable memory when user explicitly saves a note
-    if (!ui.memoryEnabled.checked) {
-      await grokDesktop.setMemoryEnabled(true);
-      ui.memoryEnabled.checked = true;
-    }
-    await grokDesktop.appendMemory({ text: text.trim(), scope: "global" });
-    await loadMemory();
-    alert("已写入全局记忆。新开的对话会用到（需保持「启用记忆」打开）。");
-  } catch (err) {
-    alert(err.message || err);
-  }
 });
-$("btn-memory-clear")?.addEventListener("click", async () => {
-  if (!confirm("清空记忆？将调用 grok memory clear（可能仅清当前工作区）。")) return;
-  try {
-    await grokDesktop.clearMemory();
-    await loadMemory();
-  } catch (err) {
-    alert(err.message || err);
-  }
-});
+$("mem-category-filter")?.addEventListener("change", () => renderMemoryList());
+$("btn-memory-refresh")?.addEventListener("click", () => loadMemory());
+$("btn-memory-add")?.addEventListener("click", () => void addMemoryEntry("note"));
+$("btn-memory-add-exp")?.addEventListener("click", () => void addMemoryEntry("experience"));
 
 // ── Skills ─────────────────────────────────────────────
 
@@ -5109,6 +5505,10 @@ async function loadSettings() {
 
     const info = await grokDesktop.appInfo();
     if ($("set-memory")) $("set-memory").checked = !!info.memoryEnabled;
+    if ($("set-experience-memory"))
+      $("set-experience-memory").checked = desktopSettings.experienceMemory !== false;
+    if ($("memory-experience-enabled"))
+      $("memory-experience-enabled").checked = desktopSettings.experienceMemory !== false;
     if ($("set-cli")) $("set-cli").textContent = info.grokCli || "—";
     if ($("set-grok-home")) $("set-grok-home").textContent = s.grokHome || info.grokHome || "—";
     if ($("set-config-path")) $("set-config-path").textContent = grok.path || "—";
@@ -5402,6 +5802,9 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       minimizeToTray: !!$("set-minimize-to-tray")?.checked,
       openAtLogin: !!$("set-open-at-login")?.checked,
       checkUpdates: !!$("set-check-updates")?.checked,
+      experienceMemory: $("set-experience-memory")
+        ? !!$("set-experience-memory").checked
+        : desktopSettings.experienceMemory !== false,
       density: $("set-density")?.value || "comfortable",
       theme: $("set-theme")?.value || desktopSettings.theme || "dark",
       autoApprove: mapped.autoApprove,
@@ -5413,6 +5816,9 @@ $("btn-settings-save")?.addEventListener("click", async () => {
       wallpaperDim: Number($("set-wallpaper-dim")?.value) || desktopSettings.wallpaperDim || 45,
       setupDismissed: desktopSettings.setupDismissed,
     });
+    if ($("memory-experience-enabled")) {
+      $("memory-experience-enabled").checked = desktopSettings.experienceMemory !== false;
+    }
     applyDensity(desktopSettings.density);
     applyTheme(desktopSettings.theme);
     applyWallpaper();

@@ -368,6 +368,12 @@ function main() {
   const en = G.STRINGS.en;
   const required = [
     "chat.exportHint",
+    "chat.copyMessageHint",
+    "chat.messageCopied",
+    "chat.branchTaskHint",
+    "chat.branchCreated",
+    "chat.branchNoContext",
+    "chat.branchSourceFallback",
     "access.recommended",
     "settings.checkUpdateBtn",
     "update.timeout",
@@ -410,6 +416,28 @@ function main() {
   assert.ok(app.includes('case "open-skills"'));
   assert.ok(app.includes('case "open-plugins"') || app.includes("open-plugins"));
   assert.ok(app.includes('case "open-mcp"'));
+  assert.ok(app.includes('className = "turn-actions"'), "message actions are rendered");
+  assert.ok(app.includes('className = "turn-action-icon turn-copy"'), "message copy icon is rendered");
+  assert.ok(app.includes('className = "turn-action-icon turn-branch"'), "message branch icon is rendered");
+  assert.ok(app.includes('actionIcon("copy")'), "copy glyph is rendered");
+  assert.ok(app.includes('actionIcon("share")'), "share glyph is rendered");
+  assert.ok(app.includes('actionIcon("memory")'), "memory glyph is rendered");
+  assert.ok(app.includes("upsertMemoryEntry"), "message memory action is wired");
+  assert.ok(app.includes("setMemoryEnabled?.(true)"), "message memory action enables memory");
+  assert.ok(app.includes("await copyText(fullText)"), "message copy uses full bubble text");
+  assert.ok(app.includes("recentContextForTurn"), "message branch collects recent context");
+  assert.ok(app.includes("initialPrompt: prompt"), "message branch starts a new task with context");
+  assert.ok(app.includes("const sendGenerations = new Map()"), "send generations are isolated per session");
+  assert.ok(!app.includes("let sendGeneration = 0"), "global send generation is removed");
+
+  console.log("[ui-polish] message action CSS…");
+  assert.ok(css.includes(".turn-actions"));
+  assert.ok(css.includes(".turn-action-icon"));
+  assert.ok(css.includes(".action-glyph svg"));
+  assert.ok(css.includes(".turn-memory { color: #f472b6; }"));
+  assert.ok(css.includes("@media (min-width: 1280px)"), "wide chat breakpoint missing");
+  assert.ok(css.includes("@media (min-width: 1680px)"), "fullscreen chat breakpoint missing");
+  assert.ok(css.includes("min(92%, 1180px)"), "fullscreen assistant width missing");
 
   console.log("[ui-polish] preload exposes helpers…");
   const preload = read("preload.js");

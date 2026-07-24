@@ -38,11 +38,16 @@ contextBridge.exposeInMainWorld("grokDesktop", {
 
   // memory
   listMemory: () => ipcRenderer.invoke("memory:list"),
+  listMemoryEntries: (opts) => ipcRenderer.invoke("memory:listEntries", opts || {}),
+  getMemoryEntry: (id) => ipcRenderer.invoke("memory:getEntry", id),
+  upsertMemoryEntry: (payload) => ipcRenderer.invoke("memory:upsertEntry", payload || {}),
+  deleteMemoryEntry: (id) => ipcRenderer.invoke("memory:deleteEntry", id),
   readMemory: (p) => ipcRenderer.invoke("memory:read", p),
   writeMemory: (path, content) => ipcRenderer.invoke("memory:write", { path, content }),
   appendMemory: (payload) => ipcRenderer.invoke("memory:append", payload),
   setMemoryEnabled: (enabled) => ipcRenderer.invoke("memory:setEnabled", enabled),
   clearMemory: () => ipcRenderer.invoke("memory:clear"),
+  memoryAgentContext: (opts) => ipcRenderer.invoke("memory:agentContext", opts || {}),
 
   // files
   pickDirectory: () => ipcRenderer.invoke("dialog:pickDirectory"),

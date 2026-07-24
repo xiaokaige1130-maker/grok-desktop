@@ -1,6 +1,6 @@
 {
   "name": "grok-desktop",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Cross-platform Grok Build desktop shell for Windows, Linux and macOS",
   "main": "main.js",
   "author": {
@@ -14,6 +14,7 @@
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "smoke": "node scripts/smoke-test.js",
+    "check:memory": "node scripts/memory-check.js",
     "check:ui": "node scripts/ui-polish-check.js",
     "check:win": "node scripts/windows-check.js",
     "check:win:packaged": "node scripts/packaged-windows-check.js",

@@ -205,32 +205,53 @@
         <div id="view-memory" class="view">
           <header class="page-header">
             <div>
-              <h1 data-i18n="page.memory.title">跨会话记忆</h1>
-              <p class="page-desc" data-i18n="page.memory.desc">让 Grok 在新对话里仍记得你的约定（写在 ~/.grok/memory）</p>
+              <h1 data-i18n="page.memory.title">记忆</h1>
+              <p class="page-desc" data-i18n="page.memory.desc">常用信息跨会话可用 · 经验按需查阅 · 可增删改</p>
             </div>
-            <div class="page-actions">
-              <label class="switch">
+            <div class="page-actions mem-actions">
+              <label class="switch" title="启用跨会话记忆">
                 <input type="checkbox" id="memory-enabled" />
                 <span data-i18n="page.memory.enable">启用记忆</span>
               </label>
+              <label class="switch" title="关闭后经验不参与检索">
+                <input type="checkbox" id="memory-experience-enabled" checked />
+                <span data-i18n="page.memory.experienceEnable">经验记忆</span>
+              </label>
               <button type="button" id="btn-memory-add" class="btn primary" data-i18n="page.memory.add">＋ 记一条</button>
+              <button type="button" id="btn-memory-add-exp" class="btn" data-i18n="page.memory.addExp">＋ 经验</button>
               <button type="button" id="btn-memory-refresh" class="btn" data-i18n="common.refresh">刷新</button>
-              <button type="button" id="btn-memory-clear" class="btn danger" data-i18n="common.clear">清空</button>
             </div>
           </header>
-          <div class="memory-howto">
-            <strong data-i18n="page.memory.howtoTitle">有什么用？</strong>
-            <span data-i18n="page.memory.howtoBody">例如「这个项目用 pnpm」「永远用中文回复」。开启后，之后新开的对话会自动检索这些内容，不用反复说明。也可在聊天里让 Grok「记住 xxx」；这里适合手动整理、编辑、备份。</span>
+          <div class="memory-toolbar">
+            <div class="mem-tabs" role="tablist">
+              <button type="button" class="mem-tab active" data-mem-filter="all" data-i18n="page.memory.filterAll">全部</button>
+              <button type="button" class="mem-tab" data-mem-filter="note" data-i18n="page.memory.filterNote">常用</button>
+              <button type="button" class="mem-tab" data-mem-filter="experience" data-i18n="page.memory.filterExp">经验</button>
+            </div>
+            <select id="mem-category-filter" class="mem-select" title="经验分类">
+              <option value="" data-i18n="page.memory.catAll">全部分类</option>
+              <option value="frontend">前端</option>
+              <option value="backend">后端</option>
+              <option value="api">接口</option>
+              <option value="desktop">桌面</option>
+              <option value="build">打包/构建</option>
+              <option value="ops">运维</option>
+              <option value="other">其他</option>
+            </select>
           </div>
-          <div class="page-split">
-            <div id="memory-list" class="card-list"></div>
-            <div id="memory-detail" class="detail-panel">
+          <div class="memory-howto">
+            <strong data-i18n="page.memory.howtoTitle">怎么用？</strong>
+            <span data-i18n="page.memory.howtoBody">「常用」：SSH、偏好等，跨会话可用。「经验」：根因与踩坑，需要时再读。点列表可编辑；可删除单条。对话里说「记住…」或「去看经验…」。</span>
+          </div>
+          <div class="page-split memory-split">
+            <div id="memory-list" class="card-list mem-card-list"></div>
+            <div id="memory-detail" class="detail-panel mem-detail">
               <div class="welcome-mini">
-                <h2 data-i18n="page.memory.emptyTitle">还没有记忆文件</h2>
-                <p data-i18n="page.memory.emptyBody">先打开右上角「启用记忆」，再点「记一条」，或在对话中说「请记住：……」。</p>
+                <h2 data-i18n="page.memory.emptyTitle">还没有记忆条</h2>
+                <p data-i18n="page.memory.emptyBody">先打开「启用记忆」，再点「记一条」或「经验」。也可在对话中说「请记住：……」。</p>
                 <ul>
-                  <li data-i18n="page.memory.tipGlobal"><strong>全局</strong>：所有项目共用的偏好</li>
-                  <li data-i18n="page.memory.tipProject"><strong>项目</strong>：某个目录/仓库专属约定</li>
+                  <li data-i18n="page.memory.tipGlobal"><strong>常用</strong>：所有会话共用的短信息</li>
+                  <li data-i18n="page.memory.tipProject"><strong>经验</strong>：分类复盘，按需读取</li>
                 </ul>
               </div>
             </div>
@@ -485,14 +506,21 @@
 
             <div class="settings-panel" id="panel-memory" data-panel="memory">
               <h1 data-i18n="settings.memory">记忆</h1>
-              <p class="settings-lead" data-i18n="settings.memoryLead">跨会话记住项目约定与偏好</p>
+              <p class="settings-lead" data-i18n="settings.memoryLead">常用信息与经验总结 · 可在记忆页管理</p>
               <div class="scard">
                 <div class="scard-row">
                   <div>
                     <div class="scard-title" data-i18n="settings.memoryEnable">启用跨会话记忆</div>
-                    <div class="scard-desc" data-i18n="settings.memoryEnableDesc">开启后新连接的 agent 会读取 ~/.grok/memory</div>
+                    <div class="scard-desc" data-i18n="settings.memoryEnableDesc">开启后可写入/使用 ~/.grok/memory</div>
                   </div>
                   <input type="checkbox" id="set-memory" class="toggle" />
+                </div>
+                <div class="scard-row">
+                  <div>
+                    <div class="scard-title" data-i18n="settings.experienceEnable">启用经验记忆</div>
+                    <div class="scard-desc" data-i18n="settings.experienceEnableDesc">关闭后经验不参与检索；常用记忆不受影响</div>
+                  </div>
+                  <input type="checkbox" id="set-experience-memory" class="toggle" />
                 </div>
               </div>
               <button type="button" class="btn" id="settings-goto-memory" data-i18n="settings.openMemory">打开记忆管理 →</button>
